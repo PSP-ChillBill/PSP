@@ -184,7 +184,7 @@ router.post(
       }
 
       if (order.status !== 'Open') {
-        throw ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
       }
 
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== order.businessId) {
@@ -252,7 +252,7 @@ router.put(
       }
 
       if (order.status !== 'Open') {
-        throw ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
       }
 
       const orderLine = await prisma.orderLine.update({
@@ -290,7 +290,7 @@ router.delete(
       }
 
       if (order.status !== 'Open') {
-        throw ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
       }
 
       await prisma.orderLine.delete({
@@ -327,7 +327,7 @@ router.post(
       }
 
       if (order.status !== 'Open') {
-        throw ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed order');
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed order');
       }
 
       const discount = await prisma.discount.findUnique({
@@ -341,7 +341,7 @@ router.post(
       // Check if discount is valid for the time
       const now = new Date();
       if (discount.startsAt > now || (discount.endsAt && discount.endsAt < now)) {
-        throw ApiError(400, 'INVALID_DISCOUNT', 'Discount is not currently valid');
+        throw new ApiError(400, 'INVALID_DISCOUNT', 'Discount is not currently valid');
       }
 
       const updated = await prisma.order.update({
@@ -384,7 +384,7 @@ router.post(
       }
 
       if (order.status !== 'Open') {
-        throw ApiError(400, 'INVALID_OPERATION', 'Order is already closed or cancelled');
+        throw new ApiError(400, 'INVALID_OPERATION', 'Order is already closed or cancelled');
       }
 
       // Calculate totals
@@ -399,7 +399,7 @@ router.post(
       }, 0);
 
       if (paymentsTotal < orderLinesTotal) {
-        throw ApiError(400, 'INSUFFICIENT_PAYMENT', 'Payment amount is less than order total');
+        throw new ApiError(400, 'INSUFFICIENT_PAYMENT', 'Payment amount is less than order total');
       }
 
       const closed = await prisma.order.update({
