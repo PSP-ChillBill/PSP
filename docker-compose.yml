@@ -26,11 +26,11 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-      PORT: 5000
+      PORT: 5001
       NODE_ENV: production
       FRONTEND_URL: http://localhost:3001
     ports:
-      - "5000:5000"
+      - "5001:5001"
     depends_on:
       - postgres
     networks:
@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: pos_frontend
     environment:
-      VITE_API_URL: http://localhost:5000
+      VITE_API_URL: http://localhost:5001
       VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
     ports:

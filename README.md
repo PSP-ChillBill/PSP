@@ -87,7 +87,7 @@ npx prisma migrate dev
 npm run dev
 ```
 
-The backend will run on http://localhost:5000
+The backend will run on http://localhost:5001
 
 ### 3. Frontend Setup
 
@@ -168,7 +168,7 @@ docker-compose down
 
 Services will be available at:
 - Frontend: http://localhost:3001
-- Backend: http://localhost:5000
+- Backend: http://localhost:5001
 - PostgreSQL: localhost:5432
 
 ## Project Structure
