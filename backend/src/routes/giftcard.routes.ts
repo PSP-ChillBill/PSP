@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError, ApiError } from '../middleware/errorHandler';
@@ -41,13 +42,14 @@ router.post(
       }
 
       const code = generateGiftCardCode();
+      const value = new Decimal(initialValue);
 
       const giftCard = await prisma.giftCard.create({
         data: {
           businessId,
           code,
-          initialValue: parseFloat(initialValue),
-          balance: parseFloat(initialValue),
+          initialValue: value,
+          balance: value,
           expiresAt: expiresAt ? new Date(expiresAt) : null,
           status: 'Active',
         },

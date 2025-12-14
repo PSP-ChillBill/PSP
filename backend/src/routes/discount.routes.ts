@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError, ApiError } from '../middleware/errorHandler';
@@ -52,7 +53,7 @@ router.post(
           code,
           type,
           scope,
-          value: parseFloat(value),
+          value: new Decimal(value),
           startsAt: new Date(startsAt),
           endsAt: endsAt ? new Date(endsAt) : null,
           status: 'Active',

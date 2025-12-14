@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ForbiddenError } from '../middleware/errorHandler';
@@ -62,7 +63,7 @@ router.post(
         data: {
           countryCode,
           taxClass,
-          ratePercent,
+          ratePercent: new Decimal(ratePercent),
           validFrom: new Date(validFrom),
           validTo: validTo ? new Date(validTo) : null,
           isActive: true,

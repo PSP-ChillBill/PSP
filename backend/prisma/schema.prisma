@@ -316,7 +316,7 @@ model StockItem {
   catalogItemId   Int      @unique
   unit            String   // pcs, ml, g
   qtyOnHand       Decimal  @db.Decimal(10, 3)
-  averageUnitCost Decimal  @db.Decimal(10, 2)
+  averageUnitCost Decimal  @db.Decimal(10, 4)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -332,7 +332,7 @@ model StockMovement {
   orderLineId       Int?
   type              String    // Receive, Sale, RefundReturn, Waste, Adjust
   delta             Decimal   @db.Decimal(10, 3) // Positive for inbound, negative for outbound
-  unitCostSnapshot  Decimal   @db.Decimal(10, 2)
+  unitCostSnapshot  Decimal   @db.Decimal(10, 4)
   notes             String?
   at                DateTime  @default(now())
   createdAt         DateTime  @default(now())

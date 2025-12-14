@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from '../middleware/errorHandler';
@@ -107,7 +108,7 @@ router.post(
           name,
           code,
           type,
-          basePrice,
+          basePrice: new Decimal(basePrice),
           taxClass,
           description,
           defaultDurationMin,
@@ -121,7 +122,7 @@ router.post(
           data: options.map((opt: any, index: number) => ({
             catalogItemId: item.id,
             name: opt.name,
-            priceModifier: opt.priceModifier || 0,
+            priceModifier: new Decimal(opt.priceModifier || 0),
             sortOrder: opt.sortOrder || index,
           })),
         });

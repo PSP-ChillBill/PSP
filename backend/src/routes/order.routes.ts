@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ApiError, ForbiddenError, ConflictError } from '../middleware/errorHandler';
@@ -16,7 +17,7 @@ const validateRequest = (req: AuthRequest, res: any, next: any) => {
 };
 
 // Helper to get current tax rate
-async function getCurrentTaxRate(countryCode: string, taxClass: string) {
+async function getCurrentTaxRate(countryCode: string, taxClass: string): Promise<Decimal> {
   const now = new Date();
   const taxRule = await prisma.taxRule.findFirst({
     where: {
@@ -32,7 +33,7 @@ async function getCurrentTaxRate(countryCode: string, taxClass: string) {
     orderBy: { validFrom: 'desc' },
   });
 
-  return taxRule ? taxRule.ratePercent : 0;
+  return taxRule ? taxRule.ratePercent : new Decimal(0);
 }
 
 // Create order
@@ -204,8 +205,11 @@ router.post(
       // Get current tax rate
       const taxRate = await getCurrentTaxRate(order.business.countryCode, option.catalogItem.taxClass);
 
-      // Calculate unit price
-      const unitPrice = parseFloat(option.catalogItem.basePrice.toString()) + parseFloat(option.priceModifier.toString());
+      // Calculate unit price safely using Decimal
+      const basePrice = new Decimal(option.catalogItem.basePrice);
+      const priceModifier = new Decimal(option.priceModifier);
+      const unitPrice = basePrice.plus(priceModifier);
+      const quantity = new Decimal(qty);
 
       const orderLine = await prisma.orderLine.create({
         data: {
@@ -213,7 +217,7 @@ router.post(
           optionId,
           itemNameSnapshot: option.catalogItem.name,
           optionNameSnapshot: option.name,
-          qty,
+          qty: quantity,
           unitPriceSnapshot: unitPrice,
           taxClassSnapshot: option.catalogItem.taxClass,
           taxRateSnapshotPct: taxRate,
@@ -257,7 +261,7 @@ router.put(
 
       const orderLine = await prisma.orderLine.update({
         where: { id: lineId },
-        data: { qty },
+        data: { qty: new Decimal(qty) },
       });
 
       res.json(orderLine);
@@ -387,18 +391,23 @@ router.post(
         throw new ApiError(400, 'INVALID_OPERATION', 'Order is already closed or cancelled');
       }
 
-      // Calculate totals
+      // Calculate totals using Decimal arithmetic
       const orderLinesTotal = order.orderLines.reduce((sum, line) => {
-        const lineTotal = parseFloat(line.unitPriceSnapshot.toString()) * parseFloat(line.qty.toString());
-        const lineTax = lineTotal * parseFloat(line.taxRateSnapshotPct.toString()) / 100;
-        return sum + lineTotal + lineTax;
-      }, 0);
+        const unitPrice = new Decimal(line.unitPriceSnapshot);
+        const qty = new Decimal(line.qty);
+        const taxRate = new Decimal(line.taxRateSnapshotPct);
+        
+        const lineTotal = unitPrice.times(qty);
+        const lineTax = lineTotal.times(taxRate).div(100);
+        return sum.plus(lineTotal).plus(lineTax);
+      }, new Decimal(0));
 
       const paymentsTotal = order.payments.reduce((sum, payment) => {
-        return sum + parseFloat(payment.amount.toString());
-      }, 0);
+        return sum.plus(new Decimal(payment.amount));
+      }, new Decimal(0));
 
-      if (paymentsTotal < orderLinesTotal) {
+      // Use precision safe comparison
+      if (paymentsTotal.lessThan(orderLinesTotal)) {
         throw new ApiError(400, 'INSUFFICIENT_PAYMENT', 'Payment amount is less than order total');
       }
 
@@ -423,7 +432,9 @@ router.post(
 
         if (option?.catalogItem.stockItem) {
           const stockItem = option.catalogItem.stockItem;
-          const qtyDelta = -parseFloat(line.qty.toString());
+          // Exact arithmetic for stock movement
+          const qty = new Decimal(line.qty);
+          const qtyDelta = qty.negated();
 
           await prisma.$transaction([
             prisma.stockMovement.create({
@@ -439,7 +450,7 @@ router.post(
               where: { id: stockItem.id },
               data: {
                 qtyOnHand: {
-                  decrement: parseFloat(line.qty.toString()),
+                  decrement: qty,
                 },
               },
             }),
