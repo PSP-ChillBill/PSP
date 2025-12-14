@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pos_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pos_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pos_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pos_backend
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/pos_db?schema=public
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      PORT: 5001
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:3001
+    ports:
+      - "5001:5001"
+    depends_on:
+      - postgres
+    networks:
+      - pos_network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pos_frontend
+    environment:
+      VITE_API_URL: http://localhost:5001
+      VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY}
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - pos_network
+
+volumes:
+  postgres_data:
+
+networks:
+  pos_network:
+    driver: bridge

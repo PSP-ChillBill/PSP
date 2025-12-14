@@ -1,0 +1,347 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tenancy Models
+model Business {
+  id                Int      @id @default(autoincrement())
+  name              String
+  address           String?
+  phone             String?
+  email             String?
+  countryCode       String   // e.g., LT, LV, PL
+  priceIncludesTax  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  employees         Employee[]
+  catalogItems      CatalogItem[]
+  orders            Order[]
+  discounts         Discount[]
+  giftCards         GiftCard[]
+  reservations      Reservation[]
+  categories        Category[]
+
+  @@index([countryCode])
+}
+
+model Employee {
+  id          Int      @id @default(autoincrement())
+  businessId  Int?     // NULL for Super Admins
+  googleId    String?  @unique
+  email       String   @unique
+  name        String
+  role        String   // SuperAdmin, Owner, Manager, Staff
+  status      String   @default("Active") // Active, OnLeave, Terminated
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business    Business?     @relation(fields: [businessId], references: [id])
+  orders      Order[]
+  reservations Reservation[]
+  serviceEmployees ServiceEmployee[]
+
+  @@index([businessId])
+  @@index([email])
+  @@index([role])
+}
+
+// Catalog Models
+model Category {
+  id          Int      @id @default(autoincrement())
+  businessId  Int
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  business     Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  catalogItems CatalogItem[]
+
+  @@index([businessId])
+}
+
+model CatalogItem {
+  id                   Int      @id @default(autoincrement())
+  businessId           Int
+  categoryId           Int?
+  name                 String
+  code                 String
+  type                 String   // Product, Service
+  basePrice            Decimal  @db.Decimal(10, 2)
+  status               String   @default("Draft") // Draft, Active, Archived
+  defaultDurationMin   Int?     // For services
+  taxClass             String   // Food, Service, Alcohol, Other
+  description          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  business             Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category             Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  options              Option[]
+  stockItem            StockItem?
+  serviceEmployees     ServiceEmployee[]
+  discountEligibilities DiscountEligibility[]
+  reservationServices  ReservationService[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@index([type])
+  @@index([status])
+}
+
+model Option {
+  id            Int      @id @default(autoincrement())
+  catalogItemId Int
+  name          String   // e.g., "Small", "Medium", "Large"
+  priceModifier Decimal  @db.Decimal(10, 2) @default(0)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  orderLines    OrderLine[]
+
+  @@index([catalogItemId])
+}
+
+// For services, track which employees can perform them
+model ServiceEmployee {
+  id            Int      @id @default(autoincrement())
+  catalogItemId Int
+  employeeId    Int
+  createdAt     DateTime @default(now())
+
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([catalogItemId, employeeId])
+  @@index([employeeId])
+}
+
+// Tax Models
+model TaxRule {
+  id           Int       @id @default(autoincrement())
+  countryCode  String
+  taxClass     String
+  ratePercent  Decimal   @db.Decimal(5, 2)
+  validFrom    DateTime
+  validTo      DateTime?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([countryCode, taxClass, isActive])
+  @@index([validFrom, validTo])
+}
+
+// Order Models
+model Order {
+  id                      Int       @id @default(autoincrement())
+  businessId              Int
+  employeeId              Int
+  reservationId           Int?      @unique
+  status                  String    @default("Open") // Open, Closed, Cancelled, Refunded
+  tableOrArea             String?
+  tipAmount               Decimal   @db.Decimal(10, 2) @default(0)
+  orderDiscountSnapshot   String?   // JSON snapshot of order-level discount
+  discountId              Int?      // Reference to Discount
+  createdAt               DateTime  @default(now())
+  closedAt                DateTime?
+  updatedAt               DateTime  @updatedAt
+
+  business                Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  employee                Employee    @relation(fields: [employeeId], references: [id])
+  reservation             Reservation? @relation(fields: [reservationId], references: [id])
+  discount                Discount?   @relation(fields: [discountId], references: [id])
+  orderLines              OrderLine[]
+  payments                Payment[]
+
+  @@index([businessId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderLine {
+  id                    Int       @id @default(autoincrement())
+  orderId               Int
+  optionId              Int?
+  itemNameSnapshot      String
+  optionNameSnapshot    String?
+  qty                   Decimal   @db.Decimal(10, 3)
+  unitPriceSnapshot     Decimal   @db.Decimal(10, 2)
+  unitDiscountSnapshot  String?   // JSON snapshot of line-level discount
+  taxClassSnapshot      String
+  taxRateSnapshotPct    Decimal   @db.Decimal(5, 2)
+  performedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  order                 Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  option                Option?       @relation(fields: [optionId], references: [id])
+  stockMovements        StockMovement[]
+
+  @@index([orderId])
+}
+
+// Payment Models
+model Payment {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  giftCardId  Int?
+  amount      Decimal  @db.Decimal(10, 2) // Can be negative for refunds
+  currency    String   @default("EUR")
+  method      String   // Cash, CardDebit, CardCredit, GiftCard
+  tipPortion  Decimal  @db.Decimal(10, 2) @default(0)
+  stripePaymentIntentId String?
+  createdAt   DateTime @default(now())
+
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  giftCard    GiftCard? @relation(fields: [giftCardId], references: [id])
+
+  @@index([orderId])
+  @@index([method])
+  @@index([createdAt])
+}
+
+model GiftCard {
+  id            Int      @id @default(autoincrement())
+  businessId    Int
+  code          String   @unique
+  issuedAt      DateTime @default(now())
+  expiresAt     DateTime?
+  initialValue  Decimal  @db.Decimal(10, 2)
+  balance       Decimal  @db.Decimal(10, 2)
+  status        String   @default("Active") // Active, Blocked, Expired
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  payments      Payment[]
+
+  @@index([businessId])
+  @@index([code])
+  @@index([status])
+}
+
+// Discount Models
+model Discount {
+  id          Int       @id @default(autoincrement())
+  businessId  Int
+  code        String
+  type        String    // Percent, Amount
+  scope       String    // Order, Line
+  value       Decimal   @db.Decimal(10, 2)
+  startsAt    DateTime
+  endsAt      DateTime?
+  status      String    @default("Active") // Active, Inactive
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  eligibilities DiscountEligibility[]
+  orders      Order[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@index([status])
+}
+
+model DiscountEligibility {
+  id            Int      @id @default(autoincrement())
+  discountId    Int
+  catalogItemId Int
+  createdAt     DateTime @default(now())
+
+  discount      Discount    @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+
+  @@unique([discountId, catalogItemId])
+  @@index([catalogItemId])
+}
+
+// Reservation Models
+model Reservation {
+  id                  Int       @id @default(autoincrement())
+  businessId          Int
+  employeeId          Int?      // Assigned employee
+  customerName        String
+  customerEmail       String?
+  customerPhone       String?
+  bookedAt            DateTime  @default(now())
+  appointmentStart    DateTime
+  appointmentEnd      DateTime
+  plannedDurationMin  Int
+  status              String    @default("Booked") // Booked, Cancelled, Completed
+  tableOrArea         String?   // For catering/restaurant reservations
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  business            Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  employee            Employee? @relation(fields: [employeeId], references: [id])
+  services            ReservationService[]
+  order               Order?
+
+  @@index([businessId])
+  @@index([employeeId])
+  @@index([appointmentStart, appointmentEnd])
+  @@index([status])
+}
+
+model ReservationService {
+  id            Int      @id @default(autoincrement())
+  reservationId Int
+  catalogItemId Int
+  quantity      Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId])
+  @@index([catalogItemId])
+}
+
+// Inventory Models
+model StockItem {
+  id              Int      @id @default(autoincrement())
+  catalogItemId   Int      @unique
+  unit            String   // pcs, ml, g
+  qtyOnHand       Decimal  @db.Decimal(10, 3)
+  averageUnitCost Decimal  @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  catalogItem     CatalogItem     @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  stockMovements  StockMovement[]
+
+  @@index([catalogItemId])
+}
+
+model StockMovement {
+  id                Int       @id @default(autoincrement())
+  stockItemId       Int
+  orderLineId       Int?
+  type              String    // Receive, Sale, RefundReturn, Waste, Adjust
+  delta             Decimal   @db.Decimal(10, 3) // Positive for inbound, negative for outbound
+  unitCostSnapshot  Decimal   @db.Decimal(10, 2)
+  notes             String?
+  at                DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+
+  stockItem         StockItem  @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  orderLine         OrderLine? @relation(fields: [orderLineId], references: [id])
+
+  @@index([stockItemId])
+  @@index([orderLineId])
+  @@index([type])
+  @@index([at])
+}
