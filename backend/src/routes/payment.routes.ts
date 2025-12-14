@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import Stripe from 'stripe';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ApiError, ForbiddenError } from '../middleware/errorHandler';
@@ -45,8 +46,12 @@ router.post(
         throw ForbiddenError('Access denied');
       }
 
+      // Safe conversion for Stripe (expects integer cents)
+      const amountDecimal = new Decimal(amount);
+      const amountCents = amountDecimal.times(100).round().toNumber();
+
       const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(parseFloat(amount) * 100), // Convert to cents
+        amount: amountCents,
         currency: currency.toLowerCase(),
         metadata: {
           orderId: orderId.toString(),
@@ -98,6 +103,9 @@ router.post(
         throw ForbiddenError('Access denied');
       }
 
+      const amountDecimal = new Decimal(amount);
+      const tipDecimal = new Decimal(tipPortion);
+
       // Handle gift card payment
       if (method === 'GiftCard') {
         if (!giftCardId) {
@@ -120,7 +128,8 @@ router.post(
           throw new ApiError(400, 'GIFT_CARD_EXPIRED', 'Gift card has expired');
         }
 
-        if (parseFloat(giftCard.balance.toString()) < parseFloat(amount)) {
+        const currentBalance = new Decimal(giftCard.balance);
+        if (currentBalance.lessThan(amountDecimal)) {
           throw new ApiError(400, 'GIFT_CARD_INSUFFICIENT_BALANCE', 'Insufficient gift card balance');
         }
 
@@ -129,7 +138,7 @@ router.post(
           where: { id: giftCardId },
           data: {
             balance: {
-              decrement: parseFloat(amount),
+              decrement: amountDecimal,
             },
           },
         });
@@ -139,10 +148,10 @@ router.post(
       const payment = await prisma.payment.create({
         data: {
           orderId,
-          amount: parseFloat(amount),
+          amount: amountDecimal,
           currency,
           method,
-          tipPortion: parseFloat(tipPortion.toString()),
+          tipPortion: tipDecimal,
           giftCardId,
           stripePaymentIntentId,
         },
@@ -153,7 +162,7 @@ router.post(
         where: { id: orderId },
         data: {
           tipAmount: {
-            increment: parseFloat(tipPortion.toString()),
+            increment: tipDecimal,
           },
         },
       });
@@ -231,10 +240,10 @@ router.post(
         throw ForbiddenError('Access denied');
       }
 
-      const totalPaid = order.payments.reduce((sum, p) => sum + parseFloat(p.amount.toString()), 0);
-      const refundAmount = parseFloat(amount);
+      const totalPaid = order.payments.reduce((sum, p) => sum.plus(new Decimal(p.amount)), new Decimal(0));
+      const refundAmount = new Decimal(amount);
 
-      if (refundAmount > totalPaid) {
+      if (refundAmount.greaterThan(totalPaid)) {
         throw new ApiError(400, 'INVALID_REFUND_AMOUNT', 'Refund amount exceeds total paid');
       }
 
@@ -242,7 +251,7 @@ router.post(
       const refund = await prisma.payment.create({
         data: {
           orderId,
-          amount: -refundAmount,
+          amount: refundAmount.negated(),
           currency: 'EUR',
           method: 'Cash', // Simplified - in practice, match original payment method
         },

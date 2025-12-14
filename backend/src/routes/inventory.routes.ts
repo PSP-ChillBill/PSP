@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
+import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ForbiddenError } from '../middleware/errorHandler';
@@ -48,8 +49,8 @@ router.post(
         data: {
           catalogItemId,
           unit,
-          qtyOnHand: parseFloat(qtyOnHand),
-          averageUnitCost: parseFloat(averageUnitCost),
+          qtyOnHand: new Decimal(qtyOnHand),
+          averageUnitCost: new Decimal(averageUnitCost),
         },
       });
 
@@ -162,16 +163,17 @@ router.post(
         throw ForbiddenError('Cannot manage inventory for another business');
       }
 
-      const deltaValue = parseFloat(delta);
+      const deltaValue = new Decimal(delta);
+      const unitCost = new Decimal(unitCostSnapshot);
 
-      // Create movement and update stock quantity
+      // Create movement and update stock quantity using safe Decimal arithmetic
       await prisma.$transaction([
         prisma.stockMovement.create({
           data: {
             stockItemId,
             type,
             delta: deltaValue,
-            unitCostSnapshot: parseFloat(unitCostSnapshot),
+            unitCostSnapshot: unitCost,
             notes,
           },
         }),
@@ -183,7 +185,7 @@ router.post(
             },
             // Update average cost for receipts
             ...(type === 'Receive' ? {
-              averageUnitCost: parseFloat(unitCostSnapshot),
+              averageUnitCost: unitCost,
             } : {}),
           },
         }),
