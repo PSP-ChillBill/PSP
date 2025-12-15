@@ -245,6 +245,49 @@ router.put(
   }
 );
 
+// Create option for catalog item
+router.post(
+  '/options',
+  authenticate,
+  authorize('SuperAdmin', 'Owner', 'Manager'),
+  [
+    body('catalogItemId').isInt(),
+    body('name').notEmpty(),
+    body('priceModifier').optional().isDecimal(),
+  ],
+  validateRequest,
+  async (req: AuthRequest, res, next) => {
+    try {
+      const { catalogItemId, name, priceModifier = 0, sortOrder = 0 } = req.body;
+
+      const item = await prisma.catalogItem.findUnique({
+        where: { id: catalogItemId },
+      });
+
+      if (!item) {
+        throw NotFoundError('Catalog item', catalogItemId);
+      }
+
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== item.businessId) {
+        throw ForbiddenError('Cannot create option for another business');
+      }
+
+      const option = await prisma.option.create({
+        data: {
+          catalogItemId,
+          name,
+          priceModifier: new Decimal(priceModifier),
+          sortOrder,
+        },
+      });
+
+      res.status(201).json(option);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Assign employee to service
 router.post(
   '/items/:id/employees',
