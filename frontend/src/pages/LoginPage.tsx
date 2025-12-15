@@ -45,7 +45,7 @@ export default function LoginPage() {
       }
 
       // Send token to backend
-      const res = await api.post('/api/auth/google', {
+      const res = await api.post('/auth/google', {
         token: response.credential,
       });
 
@@ -54,7 +54,7 @@ export default function LoginPage() {
       // Store auth data
       setAuth(token, user);
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/');
+      navigate(user?.businessId ? '/' : '/setup');
     } catch (error: any) {
       const message = error.response?.data?.message || error.message || 'Login failed';
       toast.error(message);
