@@ -166,14 +166,15 @@ router.post(
   authenticate,
   [
     param('id').isInt(),
-    body('optionId').isInt(),
+    body('optionId').optional().isInt(),
+    body('catalogItemId').optional().isInt(),
     body('qty').isDecimal(),
   ],
   validateRequest,
   async (req: AuthRequest, res, next) => {
     try {
       const orderId = parseInt(req.params.id);
-      const { optionId, qty } = req.body;
+      const { optionId, catalogItemId, qty } = req.body;
 
       const order = await prisma.order.findUnique({
         where: { id: orderId },
@@ -192,39 +193,73 @@ router.post(
         throw ForbiddenError('Access denied');
       }
 
-      // Get option and catalog item
-      const option = await prisma.option.findUnique({
-        where: { id: optionId },
-        include: { catalogItem: true },
-      });
+      // If optionId provided, use option path
+      if (optionId) {
+        const option = await prisma.option.findUnique({
+          where: { id: optionId },
+          include: { catalogItem: true },
+        });
 
-      if (!option) {
-        throw NotFoundError('Option', optionId);
+        if (!option) {
+          throw NotFoundError('Option', optionId);
+        }
+
+        // Get current tax rate
+        const taxRate = await getCurrentTaxRate(order.business.countryCode, option.catalogItem.taxClass);
+
+        // Calculate unit price safely using Decimal
+        const basePrice = new Decimal(option.catalogItem.basePrice);
+        const priceModifier = new Decimal(option.priceModifier);
+        const unitPrice = basePrice.plus(priceModifier);
+        const quantity = new Decimal(qty);
+
+        const orderLine = await prisma.orderLine.create({
+          data: {
+            orderId,
+            optionId,
+            itemNameSnapshot: option.catalogItem.name,
+            optionNameSnapshot: option.name,
+            qty: quantity,
+            unitPriceSnapshot: unitPrice,
+            taxClassSnapshot: option.catalogItem.taxClass,
+            taxRateSnapshotPct: taxRate,
+          },
+        });
+
+        res.status(201).json(orderLine);
+        return;
       }
 
-      // Get current tax rate
-      const taxRate = await getCurrentTaxRate(order.business.countryCode, option.catalogItem.taxClass);
+      // If catalogItemId provided (item without options), create line from catalog item
+      if (catalogItemId) {
+        const catalogItem = await prisma.catalogItem.findUnique({ where: { id: catalogItemId } });
+        if (!catalogItem) {
+          throw NotFoundError('CatalogItem', catalogItemId);
+        }
 
-      // Calculate unit price safely using Decimal
-      const basePrice = new Decimal(option.catalogItem.basePrice);
-      const priceModifier = new Decimal(option.priceModifier);
-      const unitPrice = basePrice.plus(priceModifier);
-      const quantity = new Decimal(qty);
+        const taxRate = await getCurrentTaxRate(order.business.countryCode, catalogItem.taxClass);
 
-      const orderLine = await prisma.orderLine.create({
-        data: {
-          orderId,
-          optionId,
-          itemNameSnapshot: option.catalogItem.name,
-          optionNameSnapshot: option.name,
-          qty: quantity,
-          unitPriceSnapshot: unitPrice,
-          taxClassSnapshot: option.catalogItem.taxClass,
-          taxRateSnapshotPct: taxRate,
-        },
-      });
+        const basePrice = new Decimal(catalogItem.basePrice);
+        const quantity = new Decimal(qty);
 
-      res.status(201).json(orderLine);
+        const orderLine = await prisma.orderLine.create({
+          data: {
+            orderId,
+            optionId: null,
+            itemNameSnapshot: catalogItem.name,
+            optionNameSnapshot: null,
+            qty: quantity,
+            unitPriceSnapshot: basePrice,
+            taxClassSnapshot: catalogItem.taxClass,
+            taxRateSnapshotPct: taxRate,
+          },
+        });
+
+        res.status(201).json(orderLine);
+        return;
+      }
+
+      throw ValidationError(['optionId or catalogItemId is required']);
     } catch (error) {
       next(error);
     }
