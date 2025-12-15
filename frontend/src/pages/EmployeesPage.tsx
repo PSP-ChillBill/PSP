@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import { Plus, Edit, Trash2, X } from 'lucide-react';
 
 export default function EmployeesPage() {
   const { user } = useAuthStore();
@@ -10,6 +10,11 @@ export default function EmployeesPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
+  const [formName, setFormName] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formRole, setFormRole] = useState<'Owner' | 'Manager' | 'Staff'>('Staff');
+  const [formStatus, setFormStatus] = useState<'Active' | 'OnLeave' | 'Terminated'>('Active');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     loadEmployees();
@@ -31,11 +36,19 @@ export default function EmployeesPage() {
 
   const handleCreate = () => {
     setEditingEmployee(null);
+    setFormName('');
+    setFormEmail('');
+    setFormRole(user?.role === 'Owner' ? 'Manager' : 'Staff');
+    setFormStatus('Active');
     setShowModal(true);
   };
 
   const handleEdit = (employee: any) => {
     setEditingEmployee(employee);
+    setFormName(employee.name ?? '');
+    setFormEmail(employee.email ?? '');
+    setFormRole(employee.role ?? 'Staff');
+    setFormStatus(employee.status ?? 'Active');
     setShowModal(true);
   };
 
@@ -133,6 +146,139 @@ export default function EmployeesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white w-full max-w-md rounded-lg shadow-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {editingEmployee ? 'Edit Employee' : 'Add Employee'}
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!editingEmployee && !user?.businessId) {
+                  toast.error('Business is not configured');
+                  return;
+                }
+                if (user?.role === 'Manager' && formRole !== 'Staff') {
+                  toast.error('Managers can only create/edit Staff');
+                  return;
+                }
+                try {
+                  setSubmitting(true);
+                  if (editingEmployee) {
+                    await api.put(`/employees/${editingEmployee.id}`, {
+                      name: formName,
+                      role: formRole,
+                      status: formStatus,
+                    });
+                    toast.success('Employee updated');
+                  } else {
+                    await api.post('/employees', {
+                      businessId: user!.businessId,
+                      email: formEmail,
+                      name: formName,
+                      role: formRole,
+                    });
+                    toast.success('Employee created');
+                  }
+                  setShowModal(false);
+                  await loadEmployees();
+                } catch (error: any) {
+                  const message = error?.response?.data?.message || 'Action failed';
+                  toast.error(message);
+                } finally {
+                  setSubmitting(false);
+                }
+              }}
+            >
+              <div className="px-6 py-4 space-y-4">
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    required
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
+                {!editingEmployee && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={formRole}
+                    onChange={(e) => setFormRole(e.target.value as any)}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="Staff">Staff</option>
+                    {user?.role !== 'Manager' && <option value="Manager">Manager</option>}
+                    {user?.role === 'SuperAdmin' || user?.role === 'Owner' ? (
+                      <option value="Owner">Owner</option>
+                    ) : null}
+                  </select>
+                </div>
+
+                {editingEmployee && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select
+                      value={formStatus}
+                      onChange={(e) => setFormStatus(e.target.value as any)}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="Active">Active</option>
+                      <option value="OnLeave">OnLeave</option>
+                      <option value="Terminated">Terminated</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {submitting ? 'Saving...' : editingEmployee ? 'Save Changes' : 'Create Employee'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
