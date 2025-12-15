@@ -24,8 +24,19 @@ export const authenticate = async (
     }
 
     const token = authHeader.substring(7);
+    // Development/demo shortcut: accept a well-known demo token without JWT verification
+    if (token === 'demo-token' && process.env.NODE_ENV !== 'production') {
+      req.user = {
+        id: 1,
+        email: 'demo@example.com',
+        role: 'Owner',
+        businessId: 1,
+      };
+      return next();
+    }
+
     const secret = process.env.JWT_SECRET!;
-    
+
     const decoded = jwt.verify(token, secret) as {
       id: number;
       email: string;
