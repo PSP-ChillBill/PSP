@@ -174,6 +174,50 @@ router.post(
   }
 );
 
+router.get(
+  '/',
+  authenticate,
+  async (req: AuthRequest, res, next) => {
+    try {
+      const businessId = req.user!.role === 'SuperAdmin'
+        ? parseInt(req.query.businessId as string)
+        : req.user!.businessId!;
+
+      if (!businessId && req.user!.role !== 'SuperAdmin') {
+         throw ForbiddenError('Business ID required');
+      }
+
+      const payments = await prisma.payment.findMany({
+        where: {
+          order: {
+            businessId,
+          },
+        },
+        include: {
+          order: {
+            select: {
+              id: true,
+              status: true,
+              employee: {
+                select: { name: true }
+              }
+            }
+          },
+          giftCard: {
+            select: { code: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      res.json(payments);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Get payments for an order
 router.get(
   '/order/:orderId',
