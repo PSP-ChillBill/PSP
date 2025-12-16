@@ -64,10 +64,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    // Google button is rendered automatically via renderButton
-  };
-
   // Demo direct login (for development only)
   const handleDemoLogin = async () => {
     try {

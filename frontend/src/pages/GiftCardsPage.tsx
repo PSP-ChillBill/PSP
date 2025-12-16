@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, Gift as GiftIcon } from 'lucide-react';
+import { Plus, Gift as GiftIcon, X, Copy, Check } from 'lucide-react';
 
 export default function GiftCardsPage() {
   const { user } = useAuthStore();
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   useEffect(() => {
     loadGiftCards();
@@ -27,12 +29,21 @@ export default function GiftCardsPage() {
     }
   };
 
+  const handleCopy = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Gift Cards</h1>
         {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
-          <button className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
+          <button 
+            onClick={() => setShowModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+          >
             <Plus className="w-5 h-5" />
             <span>Issue Gift Card</span>
           </button>
@@ -79,8 +90,19 @@ export default function GiftCardsPage() {
               ) : (
                 giftCards.map((card) => (
                   <tr key={card.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-medium text-gray-900">
-                      {card.code}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-medium text-gray-900 flex items-center space-x-2">
+                      <span>{card.code}</span>
+                      <button
+                        onClick={() => handleCopy(card.code)}
+                        className="text-gray-400 hover:text-gray-600"
+                        title="Copy code"
+                      >
+                        {copiedCode === card.code ? (
+                          <Check className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       €{parseFloat(card.initialValue).toFixed(2)}
@@ -116,6 +138,151 @@ export default function GiftCardsPage() {
           </table>
         </div>
       )}
+
+      {showModal && (
+        <IssueGiftCardModal
+          onClose={() => setShowModal(false)}
+          onSuccess={loadGiftCards}
+        />
+      )}
+    </div>
+  );
+}
+
+function IssueGiftCardModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const { user } = useAuthStore();
+  const [value, setValue] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+  const [issuedCode, setIssuedCode] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user?.businessId) {
+      toast.error('Business not configured');
+      return;
+    }
+
+    if (!value || parseFloat(value) <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const payload: any = {
+        businessId: user.businessId,
+        initialValue: parseFloat(value),
+      };
+
+      if (expiresAt) {
+        payload.expiresAt = new Date(expiresAt).toISOString();
+      }
+
+      const res = await api.post('/gift-cards', payload);
+      setIssuedCode(res.data.code);
+      toast.success(`Gift card issued: ${res.data.code}`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to issue gift card');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCopyCode = () => {
+    if (issuedCode) {
+      navigator.clipboard.writeText(issuedCode);
+      toast.success('Code copied to clipboard');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white w-full max-w-md rounded-lg shadow-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Issue Gift Card</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {!issuedCode ? (
+          <form onSubmit={handleIssue} className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount (€) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                required
+                placeholder="50.00"
+                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Expiration Date (optional)
+              </label>
+              <input
+                type="date"
+                value={expiresAt}
+                onChange={(e) => setExpiresAt(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Leave empty for no expiration</p>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {submitting ? 'Issuing...' : 'Issue Gift Card'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-6 text-center space-y-4">
+            <GiftIcon className="w-16 h-16 text-green-500 mx-auto" />
+            <div>
+              <p className="text-sm text-gray-600 mb-2">Gift Card Issued Successfully</p>
+              <p className="text-lg font-mono font-bold text-gray-900 bg-gray-50 p-3 rounded">
+                {issuedCode}
+              </p>
+            </div>
+            <button
+              onClick={handleCopyCode}
+              className="w-full px-4 py-2 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 flex items-center justify-center space-x-2"
+            >
+              <Copy className="w-4 h-4" />
+              <span>Copy Code</span>
+            </button>
+            <button
+              onClick={() => {
+                onSuccess();
+                onClose();
+              }}
+              className="w-full px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700"
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
