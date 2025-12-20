@@ -10,6 +10,7 @@ import {
   Tag, 
   Gift, 
   Archive,
+  Clock3,
   LogOut 
 } from 'lucide-react';
 
@@ -32,6 +33,7 @@ export default function Layout() {
     { name: 'Discounts', href: '/discounts', icon: Tag, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Inventory', href: '/inventory', icon: Archive, roles: ['SuperAdmin', 'Owner', 'Manager'] },
+    { name: 'Activity Log', href: '/activity', icon: Clock3, roles: ['Owner'] },
   ];
 
   const filteredNav = navigation.filter(

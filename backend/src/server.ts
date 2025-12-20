@@ -15,6 +15,7 @@ import discountRoutes from './routes/discount.routes';
 import taxRoutes from './routes/tax.routes';
 import giftCardRoutes from './routes/giftcard.routes';
 import inventoryRoutes from './routes/inventory.routes';
+import activityRoutes from './routes/activity.routes';
 import { errorHandler } from './middleware/errorHandler';
 
 dotenv.config();
@@ -53,6 +54,7 @@ app.use('/api/discounts', discountRoutes);
 app.use('/api/taxes', taxRoutes);
 app.use('/api/gift-cards', giftCardRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/activity', activityRoutes);
 
 // Error handling
 app.use(errorHandler);
