@@ -26,6 +26,7 @@ model Business {
   giftCards         GiftCard[]
   reservations      Reservation[]
   categories        Category[]
+  seats             Seat[]
 
   @@index([countryCode])
 }
@@ -289,6 +290,7 @@ model Reservation {
   employee            Employee? @relation(fields: [employeeId], references: [id])
   services            ReservationService[]
   order               Order?
+  seats               ReservationSeat[]
 
   @@index([businessId])
   @@index([employeeId])
@@ -344,4 +346,36 @@ model StockMovement {
   @@index([orderLineId])
   @@index([type])
   @@index([at])
+}
+
+// Seating Models (allowed by requirements)
+model Seat {
+  id          Int       @id @default(autoincrement())
+  businessId  Int
+  name        String    // e.g., T1, T2, Bar1
+  capacity    Int       @default(1)
+  status      String    @default("Active") // Active, Inactive
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reservations ReservationSeat[]
+
+  @@unique([businessId, name])
+  @@index([businessId])
+  @@index([status])
+}
+
+model ReservationSeat {
+  id             Int          @id @default(autoincrement())
+  reservationId  Int
+  seatId         Int
+  createdAt      DateTime     @default(now())
+
+  reservation    Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  seat           Seat         @relation(fields: [seatId], references: [id], onDelete: Cascade)
+
+  @@unique([reservationId, seatId])
+  @@index([seatId])
+  @@index([reservationId])
 }
