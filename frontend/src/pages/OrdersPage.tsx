@@ -359,7 +359,8 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [clientSecret, setClientSecret] = useState<string>('');
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
-
+  const [giftCardSearch, setGiftCardSearch] = useState('');
+  
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
@@ -384,11 +385,54 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     }
   };
 
+  const searchGiftCards = (query: string) => {
+    if (!query.trim()) return giftCards;
+
+    const searchTerm = query.toLowerCase().trim();
+    
+    // Score each gift card based on how well it matches the search term
+    const scoredCards = giftCards.map((gc) => {
+      const code = gc.code.toLowerCase();
+      let score = 0;
+
+      // Exact match: highest priority
+      if (code === searchTerm) {
+        score = 1000;
+      }
+      // Starts with search term
+      else if (code.startsWith(searchTerm)) {
+        score = 500;
+      }
+      // Contains search term as complete substring
+      else if (code.includes(searchTerm)) {
+        score = 300;
+      }
+      // Levenshtein distance for typo tolerance
+      else {
+        const distance = levenshteinDistance(code, searchTerm);
+        // Give points based on how close (lower distance = higher score)
+        if (distance <= 3) {
+          score = Math.max(0, 100 - distance * 20);
+        }
+      }
+
+      return { ...gc, score };
+    });
+
+    // Filter out zero-score results and sort by score descending
+    return scoredCards
+      .filter((gc) => gc.score > 0)
+      .sort((a, b) => b.score - a.score);
+  };
+
+  const filteredGiftCards = searchGiftCards(giftCardSearch);
+
   useEffect(() => {
     if (paymentMethod === 'CardCredit') {
       createPaymentIntent();
     } else if (paymentMethod === 'GiftCard') {
       loadGiftCards();
+      setGiftCardSearch('');
     }
   }, [paymentMethod]);
 
@@ -683,23 +727,36 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
           )}
 
           {paymentMethod === 'GiftCard' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Gift Card</label>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Select Gift Card</label>
               {giftCards.length === 0 ? (
                 <p className="text-sm text-gray-500">No active gift cards available</p>
               ) : (
-                <select
-                  value={selectedGiftCard ?? ''}
-                  onChange={(e) => setSelectedGiftCard(e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Choose a gift card...</option>
-                  {giftCards.map((gc) => (
-                    <option key={gc.id} value={gc.id}>
-                      {gc.code} - €{parseFloat(gc.balance).toFixed(2)} available
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <input
+                    type="text"
+                    placeholder="Search by gift card code..."
+                    value={giftCardSearch}
+                    onChange={(e) => setGiftCardSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <select
+                    value={selectedGiftCard ?? ''}
+                    onChange={(e) => setSelectedGiftCard(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Choose a gift card...</option>
+                    {filteredGiftCards.length === 0 ? (
+                      <option disabled>No matching gift cards</option>
+                    ) : (
+                      filteredGiftCards.map((gc) => (
+                        <option key={gc.id} value={gc.id}>
+                          {gc.code} - €{parseFloat(gc.balance).toFixed(2)} available
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </>
               )}
             </div>
           )}
@@ -733,4 +790,25 @@ function calculateOrderTotal(order: any): number {
     const tax = lineTotal * (parseFloat(line.taxRateSnapshotPct) / 100);
     return sum + lineTotal + tax;
   }, 0);
+}
+
+function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
 }
