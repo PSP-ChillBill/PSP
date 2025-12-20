@@ -24,17 +24,6 @@ export const authenticate = async (
     }
 
     const token = authHeader.substring(7);
-    // Development/demo shortcut: accept a well-known demo token without JWT verification
-    if (token === 'demo-token' && process.env.NODE_ENV !== 'production') {
-      req.user = {
-        id: 1,
-        email: 'demo@example.com',
-        role: 'Owner',
-        businessId: 1,
-      };
-      return next();
-    }
-
     const secret = process.env.JWT_SECRET!;
 
     const decoded = jwt.verify(token, secret) as {
@@ -74,19 +63,19 @@ export const checkBusinessAccess = (req: AuthRequest, res: Response, next: NextF
     return next(UnauthorizedError('Authentication required'));
   }
 
-  // Super admins have access to all businesses
+// Super admins have access to all businesses
   if (req.user.role === 'SuperAdmin') {
     return next();
   }
 
-  // Get business ID from params or body
+// Get business ID from params or body
   const businessId = parseInt(req.params.businessId || req.body.businessId);
   
   if (!businessId) {
     return next(ForbiddenError('Business ID required'));
   }
 
-  // Check if user belongs to the business
+// Check if user belongs to the business
   if (req.user.businessId !== businessId) {
     return next(ForbiddenError('Access denied to this business'));
   }
