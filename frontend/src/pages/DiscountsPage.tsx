@@ -8,6 +8,84 @@ export default function DiscountsPage() {
   const { user } = useAuthStore();
   const [discounts, setDiscounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  const createDiscount = async () => {
+    // Open modal instead — replaced sequential prompts with a single form modal below.
+    setShowCreateModal(true);
+  };
+
+  // Modal form state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formCode, setFormCode] = useState('');
+  const [formType, setFormType] = useState('Percent');
+  const [formScope, setFormScope] = useState('Order');
+  const [formValue, setFormValue] = useState('10');
+  const [formStartsAt, setFormStartsAt] = useState(new Date().toISOString().slice(0, 10));
+  const [formEndsAt, setFormEndsAt] = useState('');
+
+  const submitCreateDiscount = async () => {
+    try {
+      if (!formCode.trim()) {
+        toast.error('Code is required');
+        return;
+      }
+      if (!(formType === 'Percent' || formType === 'Amount')) {
+        toast.error('Type must be Percent or Amount');
+        return;
+      }
+      if (!(formScope === 'Order' || formScope === 'Line')) {
+        toast.error('Scope must be Order or Line');
+        return;
+      }
+      const value = parseFloat(formValue);
+      if (isNaN(value)) {
+        toast.error('Invalid value');
+        return;
+      }
+      const startsAt = new Date(formStartsAt);
+      if (isNaN(startsAt.getTime())) {
+        toast.error('Invalid start date');
+        return;
+      }
+      let endsAtIso: string | undefined = undefined;
+      if (formEndsAt && formEndsAt.trim() !== '') {
+        const e = new Date(formEndsAt);
+        if (isNaN(e.getTime())) {
+          toast.error('Invalid end date');
+          return;
+        }
+        endsAtIso = e.toISOString();
+      }
+
+      const payload: any = {
+        businessId: user?.businessId,
+        code: formCode.trim(),
+        type: formType,
+        scope: formScope,
+        value,
+        startsAt: startsAt.toISOString(),
+      };
+      if (endsAtIso) payload.endsAt = endsAtIso;
+
+      setLoading(true);
+      await api.post('/discounts', payload);
+      toast.success('Discount created');
+      setShowCreateModal(false);
+      // reset form
+      setFormCode('');
+      setFormType('Percent');
+      setFormScope('Order');
+      setFormValue('10');
+      setFormStartsAt(new Date().toISOString().slice(0, 10));
+      setFormEndsAt('');
+      await loadDiscounts();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to create discount');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadDiscounts();
@@ -32,12 +110,111 @@ export default function DiscountsPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Discounts</h1>
         {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
-          <button className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition">
+          <button
+            onClick={createDiscount}
+            disabled={loading}
+            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-60"
+          >
             <Plus className="w-5 h-5" />
             <span>Create Discount</span>
           </button>
         )}
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-lg p-6">
+            <h2 className="text-xl font-semibold mb-4">Create Discount</h2>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Code</label>
+                <input
+                  value={formCode}
+                  onChange={(e) => setFormCode(e.target.value)}
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  placeholder="SUMMER10"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Type</label>
+                  <select
+                    value={formType}
+                    onChange={(e) => setFormType(e.target.value)}
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                  >
+                    <option>Percent</option>
+                    <option>Amount</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Scope</label>
+                  <select
+                    value={formScope}
+                    onChange={(e) => setFormScope(e.target.value)}
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                  >
+                    <option>Order</option>
+                    <option>Line</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Value</label>
+                <input
+                  value={formValue}
+                  onChange={(e) => setFormValue(e.target.value)}
+                  className="mt-1 block w-full border rounded-md px-3 py-2"
+                  placeholder="10"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Starts At</label>
+                  <input
+                    type="date"
+                    value={formStartsAt}
+                    onChange={(e) => setFormStartsAt(e.target.value)}
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Ends At (optional)</label>
+                  <input
+                    type="date"
+                    value={formEndsAt}
+                    onChange={(e) => setFormEndsAt(e.target.value)}
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitCreateDiscount}
+                className="px-4 py-2 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
+                disabled={loading}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
