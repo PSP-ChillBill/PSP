@@ -92,7 +92,7 @@ export default function CatalogPage() {
       }
       
       await api.post('/catalog/items', payload);
-      toast.success(`${formType} created successfully`);
+      toast.success(`{formType} EUR created successfully`);
       setShowModal(false);
       await loadItems();
     } catch (error: any) {

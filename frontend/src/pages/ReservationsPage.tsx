@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
@@ -14,6 +14,14 @@ import {
   isSameDay,
   format,
 } from 'date-fns';
+
+const TIME_SLOT_OPTIONS = Array.from({ length: 24 * 2 }).map((_, i) => {
+  const hh = Math.floor(i / 2)
+    .toString()
+    .padStart(2, '0');
+  const mm = i % 2 === 0 ? '00' : '30';
+  return `${hh}:${mm}`;
+});
 
 export default function ReservationsPage() {
   const { user } = useAuthStore();
@@ -35,12 +43,7 @@ export default function ReservationsPage() {
   const [newSeatName, setNewSeatName] = useState('');
   const [newSeatCapacity, setNewSeatCapacity] = useState<number>(2);
 
-  useEffect(() => {
-    loadReservations();
-    loadSeats();
-  }, []);
-
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/reservations', {
@@ -52,9 +55,9 @@ export default function ReservationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.businessId]);
 
-  const loadSeats = async () => {
+  const loadSeats = useCallback(async () => {
     try {
       if (!user?.businessId) return;
       const res = await api.get('/seats', { params: { businessId: user.businessId } });
@@ -62,7 +65,12 @@ export default function ReservationsPage() {
     } catch (e) {
       // seats might not exist yet; avoid noisy error
     }
-  };
+  }, [user?.businessId]);
+
+  useEffect(() => {
+    loadReservations();
+    loadSeats();
+  }, [loadReservations, loadSeats]);
 
   const daysInCalendar = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -279,18 +287,11 @@ export default function ReservationsPage() {
                 value={selectedTime}
                 onChange={(e) => setSelectedTime(e.target.value)}
               >
-                {Array.from({ length: 24 * 2 }).map((_, i) => {
-                  const hh = Math.floor(i / 2)
-                    .toString()
-                    .padStart(2, '0');
-                  const mm = i % 2 === 0 ? '00' : '30';
-                  const label = `${hh}:${mm}`;
-                  return (
-                    <option key={label} value={label}>
-                      {label}
-                    </option>
-                  );
-                })}
+                {TIME_SLOT_OPTIONS.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </div>
 

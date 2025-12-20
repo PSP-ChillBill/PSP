@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import prisma from '../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ForbiddenError, ConflictError, ApiError } from '../middleware/errorHandler';
 import { validationResult } from 'express-validator';
@@ -8,6 +9,22 @@ import { validationResult } from 'express-validator';
 type AsyncHandler = (req: AuthRequest, res: any, next: any) => Promise<void>;
 
 const router: Router = Router();
+
+const reservationInclude = {
+  employee: true,
+  services: {
+    include: { catalogItem: true },
+  },
+  seats: { include: { seat: true } },
+} satisfies Prisma.ReservationInclude;
+
+const reservationListInclude = {
+  employee: { select: { id: true, name: true } },
+  services: {
+    include: { catalogItem: true },
+  },
+  seats: { include: { seat: true } },
+} satisfies Prisma.ReservationInclude;
 
 const validateRequest = (req: AuthRequest, res: any, next: any) => {
   const errors = validationResult(req);
@@ -79,7 +96,7 @@ async function checkSeatConflicts(
 ) {
   if (!seatIds || seatIds.length === 0) return false;
 
-  const conflicts = await (prisma as any).reservationSeat.findFirst({
+  const conflicts = await prisma.reservationSeat.findFirst({
     where: {
       seat: { businessId },
       seatId: { in: seatIds },
@@ -140,7 +157,7 @@ router.post(
       // If seats are provided, check seats conflict too
       if (seatIds && seatIds.length > 0) {
         // Validate seats belong to business
-        const seats = await (prisma as any).seat.findMany({ where: { id: { in: seatIds }, businessId } });
+        const seats = await prisma.seat.findMany({ where: { id: { in: seatIds }, businessId } });
         if (seats.length !== seatIds.length) {
           throw ValidationError(['One or more seats are invalid for this business']);
         }
@@ -180,20 +197,14 @@ router.post(
 
       // Attach seats
       if (seatIds && seatIds.length > 0) {
-        await (prisma as any).reservationSeat.createMany({
+        await prisma.reservationSeat.createMany({
           data: seatIds.map((sid: number) => ({ reservationId: reservation.id, seatId: sid })),
         });
       }
 
       const fullReservation = await prisma.reservation.findUnique({
         where: { id: reservation.id },
-        include: {
-          employee: true,
-          services: {
-            include: { catalogItem: true },
-          },
-          seats: { include: { seat: true } },
-        } as any,
+        include: reservationInclude,
       });
 
       res.status(201).json(fullReservation);
@@ -251,13 +262,7 @@ router.get(
 
       const reservations = await prisma.reservation.findMany({
         where,
-        include: {
-          employee: { select: { id: true, name: true } },
-          services: {
-            include: { catalogItem: true },
-          },
-          seats: { include: { seat: true } },
-        } as any,
+        include: reservationListInclude,
         orderBy: { appointmentStart: 'desc' },
       });
 
@@ -281,13 +286,9 @@ router.get(
       const reservation = await prisma.reservation.findUnique({
         where: { id: reservationId },
         include: {
-          employee: true,
-          services: {
-            include: { catalogItem: true },
-          },
-          seats: { include: { seat: true } },
+          ...reservationInclude,
           order: true,
-        } as any,
+        },
       });
 
       if (!reservation) {
@@ -355,13 +356,7 @@ router.put(
       const updated = await prisma.reservation.update({
         where: { id: reservationId },
         data: req.body,
-        include: {
-          employee: true,
-          services: {
-            include: { catalogItem: true },
-          },
-          seats: { include: { seat: true } },
-        } as any,
+        include: reservationInclude,
       });
 
       res.json(updated);

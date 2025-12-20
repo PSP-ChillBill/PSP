@@ -3,7 +3,7 @@ import { body, param, query } from 'express-validator';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { validationResult } from 'express-validator';
-import { ForbiddenError, NotFoundError, ValidationError } from '../middleware/errorHandler';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../middleware/errorHandler';
 
 const router: Router = Router();
 
@@ -29,7 +29,7 @@ router.get(
         throw ForbiddenError('Access denied');
       }
 
-      const seats = await (prisma as any).seat.findMany({
+      const seats = await prisma.seat.findMany({
         where: { businessId, status: 'Active' },
         orderBy: [{ name: 'asc' }],
       });
@@ -59,7 +59,7 @@ router.post(
         throw ForbiddenError('Cannot create seat for another business');
       }
 
-      const seat = await (prisma as any).seat.create({
+      const seat = await prisma.seat.create({
         data: { businessId, name, capacity: capacity ?? 1 },
       });
       res.status(201).json(seat);
@@ -79,12 +79,12 @@ router.post(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const id = parseInt(req.params.id);
-      const seat = await (prisma as any).seat.findUnique({ where: { id } });
+      const seat = await prisma.seat.findUnique({ where: { id } });
       if (!seat) throw NotFoundError('Seat', id);
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== seat.businessId) {
         throw ForbiddenError('Access denied');
       }
-      const updated = await (prisma as any).seat.update({ where: { id }, data: { status: 'Inactive' } });
+      const updated = await prisma.seat.update({ where: { id }, data: { status: 'Inactive' } });
       res.json(updated);
     } catch (err) {
       next(err);
@@ -102,7 +102,7 @@ router.delete(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const id = parseInt(req.params.id);
-      const seat = await (prisma as any).seat.findUnique({ 
+      const seat = await prisma.seat.findUnique({ 
         where: { id },
         include: { _count: { select: { reservations: true } } }
       });
@@ -111,7 +111,7 @@ router.delete(
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== seat.businessId) {
         throw ForbiddenError('Access denied');
       }
-      await (prisma as any).seat.delete({ where: { id } });
+      await prisma.seat.delete({ where: { id } });
       
       if (seat._count.reservations > 0) {
         throw ConflictError('Cannot delete seat with reservation history. Use deactivate instead.', 'SEAT_HAS_HISTORY');

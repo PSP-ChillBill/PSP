@@ -658,7 +658,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
                   <option value="">Choose a gift card...</option>
                   {giftCards.map((gc) => (
                     <option key={gc.id} value={gc.id}>
-                      {gc.code} - ${parseFloat(gc.balance).toFixed(2)} available
+                      {gc.code} - €{parseFloat(gc.balance).toFixed(2)} available
                     </option>
                   ))}
                 </select>
