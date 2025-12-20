@@ -102,7 +102,11 @@ router.delete(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const id = parseInt(req.params.id);
-      const seat = await (prisma as any).seat.findUnique({ where: { id } });
+      const seat = await (prisma as any).seat.findUnique({ 
+        where: { id },
+        include: { _count: { select: { reservations: true } } }
+      });
+
       if (!seat) throw NotFoundError('Seat', id);
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== seat.businessId) {
         throw ForbiddenError('Access denied');
