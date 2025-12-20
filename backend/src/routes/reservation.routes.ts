@@ -118,6 +118,7 @@ router.post(
     body('plannedDurationMin').isInt(),
     body('services').isArray(),
     body('seatIds').optional().isArray(),
+    body('seatIds.*').optional().isInt(),
   ],
   validateRequest,
   (async (req: AuthRequest, res: any, next: any) => {
