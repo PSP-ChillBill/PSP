@@ -108,7 +108,7 @@ export default function OrdersPage() {
                 </div>
 
                 <div className="mt-4 flex space-x-2">
-                  <button 
+                  <button
                     onClick={() => handleOpenPayment(order)}
                     className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
                   >
@@ -218,7 +218,7 @@ function NewOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         const catalogItem = catalogItems.find(c => c.id === item.itemId);
         // Get or create default option
         let optionId = catalogItem?.options?.[0]?.id;
-        
+
         if (!optionId) {
           // Create default option if none exists
           const optRes = await api.post('/catalog/options', {
@@ -359,7 +359,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [clientSecret, setClientSecret] = useState<string>('');
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
-  
+
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
@@ -368,6 +368,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const baseOrderTotal = calculateOrderTotal(order);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
   const orderTotal = parseFloat((baseOrderTotal * exchangeRate).toFixed(2));
+  const currencySymbol = CURRENCY_SYMBOLS[selectedCurrency] || selectedCurrency;
 
   useEffect(() => {
     loadExchangeRates();
@@ -436,7 +437,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         method: 'Cash',
         currency: selectedCurrency,
       });
-      
+
       await api.post(`/orders/${order.id}/close`);
       toast.success('Payment processed');
       onSuccess();
@@ -466,7 +467,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
       const parts = cardExpiry.split('/');
       const expMonth = parseInt(parts[0].trim());
       let expYear = parseInt(parts[1].trim());
-      
+
       // Handle 2-digit year (convert YY to YYYY)
       if (expYear < 100) {
         expYear = 2000 + expYear;
@@ -572,7 +573,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         <form onSubmit={handlePayment} className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-sm text-gray-600 mb-1">Order #{order.id}</div>
-            <div className="text-2xl font-bold text-gray-900">{CURRENCY_SYMBOLS[selectedCurrency]}{orderTotal.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-gray-900">{currencySymbol}{orderTotal.toFixed(2)}</div>
             {selectedCurrency !== 'EUR' && (
               <div className="text-xs text-gray-500 mt-1">≈ €{baseOrderTotal.toFixed(2)} EUR</div>
             )}
@@ -587,7 +588,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
             >
               {Object.keys(exchangeRates).map((currency) => (
                 <option key={currency} value={currency}>
-                  {currency} ({CURRENCY_SYMBOLS[currency]})
+                  {currency} {CURRENCY_SYMBOLS[currency] && ` (${CURRENCY_SYMBOLS[currency]})`}
                 </option>
               ))}
             </select>
@@ -716,7 +717,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
               disabled={processing || (paymentMethod === 'CardCredit' && !clientSecret)}
               className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
             >
-              {processing ? 'Processing...' : `Pay ${CURRENCY_SYMBOLS[selectedCurrency]}${orderTotal.toFixed(2)}`}
+              {processing ? 'Processing...' : `Pay ${currencySymbol}${orderTotal.toFixed(2)}`}
             </button>
           </div>
         </form>
