@@ -556,21 +556,29 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
   const [giftCardSearch, setGiftCardSearch] = useState('');
+  const [showDiscountInput, setShowDiscountInput] = useState(false);
+  const [discountCodeInput, setDiscountCodeInput] = useState('');
+  const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [existingPayments, setExistingPayments] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
-
   const [amountToPay, setAmountToPay] = useState('');
-
+  const [currentOrder, setCurrentOrder] = useState(order);
+  
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
 
-  const baseOrderTotal = calculateOrderTotal(order);
+  const baseOrderTotal = calculateOrderTotal(currentOrder);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
   
+  // Use order total (backend already applied discount if any)
+  const orderTotal = baseOrderTotal;
+  const discountAmount = currentOrder.discountAmount || 0;
+  const appliedDiscount = currentOrder.discount || null;
+  
   const totalPaidBase = existingPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-  const remainingBase = Math.max(0, baseOrderTotal - totalPaidBase);
+  const remainingBase = Math.max(0, orderTotal - totalPaidBase);
   const remainingInCurrency = parseFloat((remainingBase * exchangeRate).toFixed(2));
   
   const currencySymbol = CURRENCY_SYMBOLS[selectedCurrency] || selectedCurrency;
@@ -586,6 +594,14 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
       setAmountToPay(remainingInCurrency.toFixed(2));
     }
   }, [existingPayments, selectedCurrency, exchangeRates]);
+
+  useEffect(() => {
+    // Reset discount UI when modal closes
+    return () => {
+      setShowDiscountInput(false);
+      setDiscountCodeInput('');
+    };
+  }, []);
 
   const loadExchangeRates = async () => {
     try {
@@ -651,6 +667,46 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     }
   };
 
+  const applyDiscount = async () => {
+    if (!discountCodeInput.trim()) {
+      toast.error('Please enter a discount code');
+      return;
+    }
+
+    try {
+      setApplyingDiscount(true);
+      // Send discount code to backend to apply it to the order
+      const res = await api.post(`/orders/${currentOrder.id}/apply-discount`, {
+        discountCode: discountCodeInput.trim(),
+      });
+      
+      // Reload the order with updated discount information
+      const updatedOrder = res.data;
+      setCurrentOrder(updatedOrder);
+      setShowDiscountInput(false);
+      setDiscountCodeInput('');
+      toast.success(`Discount "${discountCodeInput}" applied!`);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to apply discount');
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
+  const removeDiscount = async () => {
+    try {
+      setApplyingDiscount(true);
+      const res = await api.delete(`/orders/${currentOrder.id}/discount`);
+      const updatedOrder = res.data;
+      setCurrentOrder(updatedOrder);
+      toast.success('Discount removed');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to remove discount');
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -680,7 +736,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     setExistingPayments(updatedPayments);
 
     const paid = updatedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
-    const total = baseOrderTotal;
+    const total = orderTotal; // Use discounted total if discount is applied
     
     // If fully paid, close
     if (paid >= total - 0.01) {
@@ -789,7 +845,64 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
           {/* Main Content - Left */}
           <div className="flex-1 p-6 overflow-y-auto">
               <div className="space-y-6">
-                  {/* Inputs */}
+                  {/* Discount Section */}
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-gray-700">Discount Code</h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowDiscountInput(!showDiscountInput)}
+                        className="px-3 py-1 text-sm bg-primary-100 text-primary-700 rounded hover:bg-primary-200"
+                      >
+                        {showDiscountInput ? 'Hide' : 'Apply Discount'}
+                      </button>
+                    </div>
+                    {appliedDiscount && (
+                      <div className="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded flex items-center justify-between">
+                        <span>
+                          Discount: {appliedDiscount.code}
+                          {appliedDiscount.type === 'Percent' ? ` -${appliedDiscount.value}%` : ` -€${appliedDiscount.value}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={removeDiscount}
+                          disabled={applyingDiscount}
+                          className="text-xs text-red-600 hover:text-red-800 font-medium disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                    {showDiscountInput && (
+                      <div className="mt-3">
+                        <div className="flex space-x-2">
+                          <input
+                            type="text"
+                            value={discountCodeInput}
+                            onChange={(e) => setDiscountCodeInput(e.target.value)}
+                            placeholder="Enter discount code"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                applyDiscount();
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={applyDiscount}
+                            disabled={applyingDiscount}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
+                          >
+                            {applyingDiscount ? 'Applying...' : 'Apply'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Currency Selection */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Currency</label>
                     <select
@@ -957,11 +1070,28 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
 
           <div className="w-full md:w-80 bg-gray-50 border-l border-gray-200 p-6 overflow-y-auto">
              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 mb-6 space-y-3">
-                <h3 className="font-semibold text-gray-900 border-b pb-2 mb-2">Order #{order.id}</h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Total</span>
-                  <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
-                </div>
+                <h3 className="font-semibold text-gray-900 border-b pb-2 mb-2">Order #{currentOrder.id}</h3>
+                {discountAmount > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal</span>
+                      <span className="font-medium">€{(baseOrderTotal + discountAmount).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span>Discount</span>
+                      <span>- €{discountAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium pt-1 border-t">
+                      <span className="text-gray-600">Order Total</span>
+                      <span>€{orderTotal.toFixed(2)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Total</span>
+                    <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm text-green-600">
                   <span>Paid</span>
                   <span>- €{totalPaidBase.toFixed(2)}</span>
