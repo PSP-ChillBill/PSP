@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2, RotateCcw, History } from 'lucide-react';
+import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2, RotateCcw, History, Printer } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { CURRENCY_SYMBOLS } from '../lib/currencies';
 
@@ -49,6 +49,25 @@ export default function OrdersPage() {
   const handleOpenRefund = (order: any) => {
     setSelectedOrder(order);
     setShowRefundModal(true);
+  };
+
+  const handlePrintReceipt = async (orderId: number) => {
+    try {
+      const response = await api.get(`/orders/${orderId}/receipt`, {
+        responseType: 'text',
+      });
+      
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(response.data);
+        printWindow.document.close();
+        // The onload="window.print()" in HTML will trigger print dialog
+      } else {
+        toast.error('Please allow popups to print receipt');
+      }
+    } catch (error) {
+      toast.error('Failed to generate receipt');
+    }
   };
 
   return (
@@ -103,17 +122,26 @@ export default function OrdersPage() {
                       {order.employee?.name} • {new Date(order.createdAt).toLocaleString()}
                     </p>
                   </div>
-                  <span
-                    className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      order.status === 'Open'
-                        ? 'bg-blue-100 text-blue-800'
-                        : order.status === 'Closed'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
-                  >
-                    {order.status}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handlePrintReceipt(order.id)}
+                      className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
+                      title="Print Receipt"
+                    >
+                      <Printer className="w-5 h-5" />
+                    </button>
+                    <span
+                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        order.status === 'Open'
+                          ? 'bg-blue-100 text-blue-800'
+                          : order.status === 'Closed'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}
+                    >
+                      {order.status}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-2 mb-4">

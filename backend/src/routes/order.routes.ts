@@ -160,6 +160,149 @@ router.get(
   }
 );
 
+// Generate receipt
+router.get(
+  '/:id/receipt',
+  authenticate,
+  param('id').isInt(),
+  validateRequest,
+  async (req: AuthRequest, res, next) => {
+    try {
+      const orderId = parseInt(req.params.id);
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          business: true,
+          employee: true,
+          orderLines: {
+            include: {
+              option: {
+                include: {
+                  catalogItem: true,
+                },
+              },
+            },
+          },
+          payments: true,
+        },
+      });
+
+      if (!order) {
+        throw NotFoundError('Order', orderId);
+      }
+
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== order.businessId) {
+        throw ForbiddenError('Access denied');
+      }
+
+      // Calculate totals
+      const lines = order.orderLines.map(line => {
+        const unitPrice = new Decimal(line.unitPriceSnapshot);
+        const qty = new Decimal(line.qty);
+        const taxRate = new Decimal(line.taxRateSnapshotPct);
+        
+        const lineBase = unitPrice.times(qty);
+        const lineTax = lineBase.times(taxRate).div(100);
+        const lineTotal = lineBase.plus(lineTax);
+
+        return {
+          name: `${line.itemNameSnapshot}${line.optionNameSnapshot && line.optionNameSnapshot !== 'Standard' ? ` (${line.optionNameSnapshot})` : ''}`,
+          qty: qty.toNumber(),
+          price: unitPrice.toNumber(),
+          total: lineTotal.toNumber(),
+        };
+      });
+
+      const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
+      const totalPaid = order.payments.reduce((sum, p) => sum + p.amount.toNumber(), 0);
+      const change = Math.max(0, totalPaid - totalAmount);
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Receipt #${order.id}</title>
+          <style>
+            body { font-family: 'Courier New', monospace; font-size: 12px; width: 72mm; margin: 0 auto; padding: 10px 0; color: #000; }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .bold { font-weight: bold; }
+            .line { border-bottom: 1px dashed #000; margin: 8px 0; }
+            .item { display: flex; justify-content: space-between; margin-bottom: 4px; }
+            .totals { margin-top: 8px; }
+            .row { display: flex; justify-content: space-between; }
+            .header { margin-bottom: 10px; }
+          </style>
+        </head>
+        <body onload="window.print()">
+          <div class="text-center header">
+            <div class="bold" style="font-size: 16px;">${order.business.name}</div>
+            ${order.business.address ? `<div>${order.business.address}</div>` : ''}
+            ${order.business.phone ? `<div>Tel: ${order.business.phone}</div>` : ''}
+            ${order.business.email ? `<div>${order.business.email}</div>` : ''}
+          </div>
+          
+          <div class="line"></div>
+          
+          <div>
+            <div>Order: #${order.id}</div>
+            <div>Date: ${new Date(order.createdAt).toLocaleString()}</div>
+            <div>Server: ${order.employee?.name || 'Staff'}</div>
+            ${order.tableOrArea ? `<div>Table: ${order.tableOrArea}</div>` : ''}
+          </div>
+          
+          <div class="line"></div>
+          
+          <div>
+            ${lines.map(line => `
+              <div class="item">
+                <span>${line.qty}x ${line.name}</span>
+                <span>${line.total.toFixed(2)}</span>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="line"></div>
+          
+          <div class="totals">
+            <div class="row bold" style="font-size: 14px;">
+              <span>TOTAL</span>
+              <span>${totalAmount.toFixed(2)}</span>
+            </div>
+            ${order.payments.length > 0 ? `
+              <div class="line" style="margin: 4px 0; border-bottom-style: dotted;"></div>
+              ${order.payments.map(p => `
+                <div class="row">
+                  <span>${p.method}</span>
+                  <span>${p.amount.toNumber().toFixed(2)}</span>
+                </div>
+              `).join('')}
+              <div class="row">
+                <span>Change</span>
+                <span>${change.toFixed(2)}</span>
+              </div>
+            ` : ''}
+          </div>
+          
+          <div class="line"></div>
+          
+          <div class="text-center">
+            Thank you!
+          </div>
+        </body>
+        </html>
+      `;
+
+      res.setHeader('Content-Type', 'text/html');
+      res.send(html);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Add order line
 router.post(
   '/:id/lines',
