@@ -289,7 +289,7 @@ router.get(
         include: {
           ...reservationInclude,
           order: true,
-        },
+        } as any,
       });
 
       if (!reservation) {
