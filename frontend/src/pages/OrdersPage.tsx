@@ -522,6 +522,9 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
   const [giftCardSearch, setGiftCardSearch] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
+  const [showDiscountInput, setShowDiscountInput] = useState(false);
+  const [discountCodeInput, setDiscountCodeInput] = useState('');
   
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
@@ -530,11 +533,51 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
 
   const baseOrderTotal = calculateOrderTotal(order);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
-  const orderTotal = parseFloat((baseOrderTotal * exchangeRate).toFixed(2));
+  const baseTotal = parseFloat((baseOrderTotal * exchangeRate).toFixed(2));
+  
+  // Calculate discounted total
+  let orderTotal = baseTotal;
+  if (appliedDiscount) {
+    if (appliedDiscount.scope === 'Order') {
+      // Apply to whole order
+      if (appliedDiscount.type === 'Percent') {
+        orderTotal = parseFloat((baseTotal * (1 - appliedDiscount.value / 100)).toFixed(2));
+      } else {
+        orderTotal = Math.max(0, parseFloat((baseTotal - appliedDiscount.value).toFixed(2)));
+      }
+    } else if (appliedDiscount.scope === 'Line') {
+      // Apply to eligible items in order
+      let discountAmount = 0;
+      order.orderLines?.forEach((line: any) => {
+        // Check both catalogItemId and optionId against eligibility
+        const isEligible = appliedDiscount.eligibilities?.some((e: any) => 
+          (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId)
+        );
+        if (isEligible) {
+          const lineTotal = parseFloat(line.unitPriceSnapshot) * parseFloat(line.qty);
+          if (appliedDiscount.type === 'Percent') {
+            discountAmount += lineTotal * (appliedDiscount.value / 100);
+          } else {
+            discountAmount += appliedDiscount.value;
+          }
+        }
+      });
+      orderTotal = Math.max(0, parseFloat((baseTotal - discountAmount).toFixed(2)));
+    }
+  }
+  
   const currencySymbol = CURRENCY_SYMBOLS[selectedCurrency] || selectedCurrency;
 
   useEffect(() => {
     loadExchangeRates();
+  }, []);
+
+  useEffect(() => {
+    // Reset discount UI when modal closes
+    return () => {
+      setShowDiscountInput(false);
+      setDiscountCodeInput('');
+    };
   }, []);
 
   const loadExchangeRates = async () => {
@@ -619,6 +662,59 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
       setGiftCards(res.data.filter((gc: any) => gc.status === 'Active'));
     } catch (error) {
       toast.error('Failed to load gift cards');
+    }
+  };
+
+  const applyDiscount = async () => {
+    if (!discountCodeInput.trim()) {
+      toast.error('Please enter a discount code');
+      return;
+    }
+
+    try {
+      const res = await api.get('/discounts', {
+        params: { businessId: order.businessId },
+      });
+      
+      const discount = res.data.find((d: any) => d.code.toLowerCase() === discountCodeInput.toLowerCase() && d.status === 'Active');
+      
+      if (!discount) {
+        toast.error('Discount code not found or inactive');
+        return;
+      }
+
+      // If Line-scoped discount, check if any eligible items exist in order
+      if (discount.scope === 'Line') {
+        console.log('Checking Line discount eligibility:', {
+          discountCode: discount.code,
+          eligibilities: discount.eligibilities,
+          orderLines: order.orderLines
+        });
+        
+        const hasEligibleItems = discount.eligibilities?.some((e: any) => {
+          const isEligible = order.orderLines?.some((line: any) => {
+            // Check both catalogItemId and optionId against eligibility catalogItemId
+            const match = (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId);
+            console.log(`Checking line catalogItemId ${line.catalogItemId} or optionId ${line.optionId} against eligibility ${e.catalogItemId}: ${match}`);
+            return match;
+          });
+          return isEligible;
+        });
+        
+        console.log('Has eligible items:', hasEligibleItems);
+        
+        if (!hasEligibleItems) {
+          toast.error('This discount does not apply to any items in this order');
+          return;
+        }
+      }
+
+      setAppliedDiscount(discount);
+      setShowDiscountInput(false);
+      setDiscountCodeInput('');
+      toast.success(`Discount "${discountCodeInput}" applied!`);
+    } catch (error) {
+      toast.error('Failed to apply discount');
     }
   };
 
@@ -779,7 +875,53 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         <form onSubmit={handlePayment} className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-sm text-gray-600 mb-1">Order #{order.id}</div>
-            <div className="text-2xl font-bold text-gray-900">{currencySymbol}{orderTotal.toFixed(2)}</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-2xl font-bold text-gray-900">{currencySymbol}{orderTotal.toFixed(2)}</div>
+              <button
+                type="button"
+                onClick={() => setShowDiscountInput(!showDiscountInput)}
+                className="px-3 py-1 text-sm bg-primary-100 text-primary-700 rounded hover:bg-primary-200"
+              >
+                Apply Discount
+              </button>
+            </div>
+            {appliedDiscount && (
+              <div className="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded flex items-center justify-between">
+                <span>
+                  Discount applied: {appliedDiscount.code}
+                  {appliedDiscount.type === 'Percent' ? ` -${appliedDiscount.value}%` : ` -${currencySymbol}${appliedDiscount.value}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAppliedDiscount(null)}
+                  className="text-xs text-red-600 hover:text-red-800 font-medium"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            {showDiscountInput && (
+              <div className="mt-3 p-3 border border-gray-300 rounded-lg bg-gray-50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Discount Code</label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={discountCodeInput}
+                    onChange={(e) => setDiscountCodeInput(e.target.value)}
+                    placeholder="Enter code"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    onKeyPress={(e) => e.key === 'Enter' && applyDiscount()}
+                  />
+                  <button
+                    type="button"
+                    onClick={applyDiscount}
+                    className="px-3 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            )}
             {selectedCurrency !== 'EUR' && (
               <div className="text-xs text-gray-500 mt-1">≈ €{baseOrderTotal.toFixed(2)} EUR</div>
             )}
