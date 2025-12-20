@@ -79,7 +79,7 @@ async function checkSeatConflicts(
 ) {
   if (!seatIds || seatIds.length === 0) return false;
 
-  const conflicts = await (prisma as any).reservationSeat.findFirst({
+  const conflicts = await prisma.reservationSeat.findFirst({
     where: {
       seat: { businessId },
       seatId: { in: seatIds },
@@ -141,7 +141,7 @@ router.post(
       // If seats are provided, check seats conflict too
       if (seatIds && seatIds.length > 0) {
         // Validate seats belong to business
-        const seats = await (prisma as any).seat.findMany({ where: { id: { in: seatIds }, businessId } });
+        const seats = await prisma.seat.findMany({ where: { id: { in: seatIds }, businessId } });
         if (seats.length !== seatIds.length) {
           throw ValidationError(['One or more seats are invalid for this business']);
         }
@@ -181,7 +181,7 @@ router.post(
 
       // Attach seats
       if (seatIds && seatIds.length > 0) {
-        await (prisma as any).reservationSeat.createMany({
+        await prisma.reservationSeat.createMany({
           data: seatIds.map((sid: number) => ({ reservationId: reservation.id, seatId: sid })),
         });
       }
