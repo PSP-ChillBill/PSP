@@ -185,6 +185,7 @@ export default function ReservationsPage() {
         capacity: newSeatCapacity,
       });
       setNewSeatName('');
+      setNewSeatCapacity(2);
       await loadSeats();
       toast.success('Seat added');
     } catch (e: any) {
