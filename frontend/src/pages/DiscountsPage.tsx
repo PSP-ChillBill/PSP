@@ -9,8 +9,20 @@ export default function DiscountsPage() {
   const [discounts, setDiscounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
+  const resetForm = () => {
+    setFormCode('');
+    setFormType('Percent');
+    setFormScope('Order');
+    setFormValue('10');
+    setFormStartsAt(new Date().toISOString().slice(0, 10));
+    setFormEndsAt('');
+    setSelectedCatalogItemId(null);
+    setEditingDiscountId(null);
+  };
+
   const createDiscount = async () => {
     // Open modal instead — replaced sequential prompts with a single form modal below.
+    resetForm();
     setShowCreateModal(true);
   };
 
@@ -45,6 +57,14 @@ export default function DiscountsPage() {
         toast.error('Invalid value');
         return;
       }
+      if (value <= 0) {
+        toast.error('Value must be greater than 0');
+        return;
+      }
+      if (formType === 'Percent' && value > 100) {
+        toast.error('Percent discount cannot exceed 100');
+        return;
+      }
       const startsAt = new Date(formStartsAt);
       if (isNaN(startsAt.getTime())) {
         toast.error('Invalid start date');
@@ -55,6 +75,10 @@ export default function DiscountsPage() {
         const e = new Date(formEndsAt);
         if (isNaN(e.getTime())) {
           toast.error('Invalid end date');
+          return;
+        }
+        if (e < startsAt) {
+          toast.error('End date must be after start date');
           return;
         }
         endsAtIso = e.toISOString();
@@ -86,15 +110,7 @@ export default function DiscountsPage() {
         toast.success('Discount created');
       }
       setShowCreateModal(false);
-      // reset form
-      setFormCode('');
-      setFormType('Percent');
-      setFormScope('Order');
-      setFormValue('10');
-      setFormStartsAt(new Date().toISOString().slice(0, 10));
-      setFormEndsAt('');
-      setSelectedCatalogItemId(null);
-      setEditingDiscountId(null);
+      resetForm();
       await loadDiscounts();
     } catch (err) {
       console.error(err);
@@ -321,7 +337,10 @@ export default function DiscountsPage() {
 
             <div className="mt-6 flex justify-end space-x-3">
               <button
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => {
+                  resetForm();
+                  setShowCreateModal(false);
+                }}
                 className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
                 disabled={loading}
               >
