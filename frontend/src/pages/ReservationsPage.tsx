@@ -202,6 +202,145 @@ export default function ReservationsPage() {
     }
   };
 
+  const loadSeats = async () => {
+    try {
+      if (!user?.businessId) return;
+      const res = await api.get('/seats', { params: { businessId: user.businessId } });
+      setSeats(res.data);
+    } catch (e) {
+      // seats might not exist yet; avoid noisy error
+    }
+  };
+
+  const daysInCalendar = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    const days: Date[] = [];
+    let day = gridStart;
+    while (day <= gridEnd) {
+      days.push(day);
+      day = addDays(day, 1);
+    }
+    return days;
+  }, [currentMonth]);
+
+  const createReservation = async () => {
+    try {
+      if (!user?.businessId) return;
+      if (!selectedDate) {
+        toast.error('Please select a date');
+        return;
+      }
+      if (!customerName.trim()) {
+        toast.error('Please enter customer name');
+        return;
+      }
+      setCreating(true);
+      const [hh, mm] = selectedTime.split(':').map((v) => parseInt(v, 10));
+      const start = new Date(selectedDate);
+      start.setHours(hh, mm, 0, 0);
+
+      const payload = {
+        businessId: user.businessId,
+        customerName,
+        appointmentStart: start.toISOString(),
+        plannedDurationMin: durationMin,
+        services: [],
+        seatIds: selectedSeatIds,
+      };
+
+      await api.post('/reservations', payload);
+      toast.success('Reservation created');
+      setCustomerName('');
+      setSelectedSeatIds([]);
+      await Promise.all([loadReservations(), loadSeats()]);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to create reservation';
+      toast.error(msg);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const checkInReservation = async (id: number) => {
+    try {
+      await api.post(`/reservations/${id}/complete`);
+      toast.success('Reservation checked in');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to check in reservation';
+      toast.error(msg);
+    }
+  };
+
+  const cancelReservation = async (id: number) => {
+    try {
+      await api.post(`/reservations/${id}/cancel`);
+      toast.success('Reservation cancelled');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to cancel reservation';
+      toast.error(msg);
+    }
+  };
+
+  const expireReservations = async () => {
+    try {
+      await api.post('/reservations/expire');
+      toast.success('Expired overdue reservations');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to expire reservations';
+      toast.error(msg);
+    }
+  };
+
+  const deleteSeat = async (id: number) => {
+    try {
+      await api.delete(`/seats/${id}`);
+      setSelectedSeatIds((prev) => prev.filter((sid) => sid !== id));
+      await loadSeats();
+      toast.success('Seat deleted');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to delete seat';
+      toast.error(msg);
+    }
+  };
+
+  const deleteReservation = async (id: number) => {
+    try {
+      await api.delete(`/reservations/${id}`);
+      toast.success('Reservation deleted');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to delete reservation';
+      toast.error(msg);
+    }
+  };
+
+  const addSeat = async () => {
+    try {
+      if (!isManager) return;
+      if (!newSeatName.trim()) {
+        toast.error('Seat name is required');
+        return;
+      }
+      await api.post('/seats', {
+        businessId: user!.businessId,
+        name: newSeatName.trim(),
+        capacity: newSeatCapacity,
+      });
+      setNewSeatName('');
+      await loadSeats();
+      toast.success('Seat added');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to add seat';
+      toast.error(msg);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
