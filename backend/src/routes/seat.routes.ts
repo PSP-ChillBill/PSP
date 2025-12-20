@@ -3,7 +3,7 @@ import { body, param, query } from 'express-validator';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { validationResult } from 'express-validator';
-import { ForbiddenError, NotFoundError, ValidationError } from '../middleware/errorHandler';
+import { ForbiddenError, NotFoundError, ValidationError, ConflictError } from '../middleware/errorHandler';
 
 const router: Router = Router();
 
@@ -102,11 +102,19 @@ router.delete(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const id = parseInt(req.params.id);
-      const seat = await (prisma as any).seat.findUnique({ where: { id } });
+      const seat = await (prisma as any).seat.findUnique({ 
+        where: { id },
+        include: { _count: { select: { reservations: true } } }
+      });
       if (!seat) throw NotFoundError('Seat', id);
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== seat.businessId) {
         throw ForbiddenError('Access denied');
       }
+      
+      if (seat._count.reservations > 0) {
+        throw ConflictError('Cannot delete seat with reservation history. Use deactivate instead.', 'SEAT_HAS_HISTORY');
+      }
+      
       await (prisma as any).seat.delete({ where: { id } });
       res.status(204).send();
     } catch (err) {

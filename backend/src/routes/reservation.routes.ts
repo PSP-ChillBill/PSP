@@ -118,6 +118,7 @@ router.post(
     body('plannedDurationMin').isInt(),
     body('services').isArray(),
     body('seatIds').optional().isArray(),
+    body('seatIds.*').optional().isInt(),
   ],
   validateRequest,
   (async (req: AuthRequest, res: any, next: any) => {
@@ -208,6 +209,8 @@ router.post(
   '/expire',
   authenticate,
   authorize('Manager', 'Owner', 'SuperAdmin'),
+  [body('businessId').optional().isInt()],
+  validateRequest,
   async (req: AuthRequest, res, next) => {
     try {
       const businessId = req.user!.role === 'SuperAdmin' ? (req.body.businessId as number | undefined) : req.user!.businessId!;
@@ -444,7 +447,7 @@ router.delete(
   '/:id',
   authenticate,
   authorize('Manager', 'Owner', 'SuperAdmin'),
-  param('id').isInt(),
+  [param('id').isInt()],
   validateRequest,
   async (req: AuthRequest, res, next) => {
     try {

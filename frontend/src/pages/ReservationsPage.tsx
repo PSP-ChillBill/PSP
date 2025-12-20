@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
@@ -35,12 +35,7 @@ export default function ReservationsPage() {
   const [newSeatName, setNewSeatName] = useState('');
   const [newSeatCapacity, setNewSeatCapacity] = useState<number>(2);
 
-  useEffect(() => {
-    loadReservations();
-    loadSeats();
-  }, []);
-
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/reservations', {
@@ -52,9 +47,9 @@ export default function ReservationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.businessId]);
 
-  const loadSeats = async () => {
+  const loadSeats = useCallback(async () => {
     try {
       if (!user?.businessId) return;
       const res = await api.get('/seats', { params: { businessId: user.businessId } });
@@ -62,7 +57,12 @@ export default function ReservationsPage() {
     } catch (e) {
       // seats might not exist yet; avoid noisy error
     }
-  };
+  }, [user?.businessId]);
+
+  useEffect(() => {
+    loadReservations();
+    loadSeats();
+  }, [loadReservations, loadSeats]);
 
   const daysInCalendar = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -78,6 +78,17 @@ export default function ReservationsPage() {
     return days;
   }, [currentMonth]);
 
+  const timeSlotOptions = useMemo(() => {
+    return Array.from({ length: 24 * 2 }).map((_, i) => {
+      const hh = Math.floor(i / 2)
+        .toString()
+        .padStart(2, '0');
+      const mm = i % 2 === 0 ? '00' : '30';
+      const label = `${hh}:${mm}`;
+      return { label, value: label };
+    });
+  }, []);
+
   const createReservation = async () => {
     try {
       if (!user?.businessId) return;
@@ -91,7 +102,7 @@ export default function ReservationsPage() {
       }
       setCreating(true);
       const [hh, mm] = selectedTime.split(':').map((v) => parseInt(v, 10));
-      const start = new Date(selectedDate);
+      const start = new Date(selectedDate.getTime());
       start.setHours(hh, mm, 0, 0);
 
       const payload = {
@@ -151,12 +162,12 @@ export default function ReservationsPage() {
 
   const deleteSeat = async (id: number) => {
     try {
-      await api.delete(`/seats/${id}`);
+      await api.post(`/seats/${id}/deactivate`);
       setSelectedSeatIds((prev) => prev.filter((sid) => sid !== id));
       await loadSeats();
-      toast.success('Seat deleted');
+      toast.success('Seat deactivated');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || 'Failed to delete seat';
+      const msg = e?.response?.data?.message || 'Failed to deactivate seat';
       toast.error(msg);
     }
   };
@@ -185,11 +196,25 @@ export default function ReservationsPage() {
         capacity: newSeatCapacity,
       });
       setNewSeatName('');
+      setNewSeatCapacity(2);
       await loadSeats();
       toast.success('Seat added');
     } catch (e: any) {
       const msg = e?.response?.data?.message || 'Failed to add seat';
       toast.error(msg);
+    }
+  };
+
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case 'Completed':
+        return 'bg-green-100 text-green-800';
+      case 'Cancelled':
+        return 'bg-red-100 text-red-800';
+      case 'Expired':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-blue-100 text-blue-800';
     }
   };
 
@@ -279,18 +304,11 @@ export default function ReservationsPage() {
                 value={selectedTime}
                 onChange={(e) => setSelectedTime(e.target.value)}
               >
-                {Array.from({ length: 24 * 2 }).map((_, i) => {
-                  const hh = Math.floor(i / 2)
-                    .toString()
-                    .padStart(2, '0');
-                  const mm = i % 2 === 0 ? '00' : '30';
-                  const label = `${hh}:${mm}`;
-                  return (
-                    <option key={label} value={label}>
-                      {label}
-                    </option>
-                  );
-                })}
+                {timeSlotOptions.map((slot) => (
+                  <option key={slot.value} value={slot.value}>
+                    {slot.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -302,7 +320,13 @@ export default function ReservationsPage() {
                 step={15}
                 className="w-full px-3 py-2 border rounded"
                 value={durationMin}
-                onChange={(e) => setDurationMin(parseInt(e.target.value || '60', 10))}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const parsed = parseInt(raw, 10);
+                  const fallback = 60;
+                  const normalized = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+                  setDurationMin(Math.max(15, normalized));
+                }}
               />
             </div>
 
@@ -327,17 +351,20 @@ export default function ReservationsPage() {
                     const checked = selectedSeatIds.includes(s.id);
                     return (
                       <div key={s.id} className={`flex items-center gap-2 px-3 py-2 border rounded ${checked ? 'bg-primary-50 border-primary-300' : ''}`}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            setSelectedSeatIds((prev) =>
-                              e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
-                            );
-                          }}
-                        />
-                        <span className="text-sm text-gray-800">{s.name}</span>
-                        <span className="ml-auto text-xs text-gray-500">{s.capacity}</span>
+                        <label className="flex items-center gap-2 cursor-pointer flex-1">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              setSelectedSeatIds((prev) =>
+                                e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
+                              );
+                            }}
+                            aria-label={`Select seat ${s.name}`}
+                          />
+                          <span className="text-sm text-gray-800">{s.name}</span>
+                          <span className="ml-auto text-xs text-gray-500">{s.capacity}</span>
+                        </label>
                         {isManager && (
                           <button
                             onClick={(e) => { e.preventDefault(); deleteSeat(s.id); }}
@@ -372,7 +399,12 @@ export default function ReservationsPage() {
                     min={1}
                     className="w-24 px-3 py-2 border rounded"
                     value={newSeatCapacity}
-                    onChange={(e) => setNewSeatCapacity(parseInt(e.target.value || '1', 10))}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value || '1', 10);
+                      const safeValue =
+                        !Number.isNaN(parsed) && parsed >= 1 ? parsed : 1;
+                      setNewSeatCapacity(safeValue);
+                    }}
                   />
                   <button
                     onClick={addSeat}
@@ -429,15 +461,7 @@ export default function ReservationsPage() {
                         <Trash className="w-4 h-4" />
                       </button>
                     )}
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      reservation.status === 'Completed'
-                        ? 'bg-green-100 text-green-800'
-                        : reservation.status === 'Cancelled'
-                        ? 'bg-red-100 text-red-800'
-                        : reservation.status === 'Expired'
-                        ? 'bg-gray-100 text-gray-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}>
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeClass(reservation.status)}`}>
                       {reservation.status}
                     </span>
                   </div>
