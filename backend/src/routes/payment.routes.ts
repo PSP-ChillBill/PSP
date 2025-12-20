@@ -321,7 +321,20 @@ router.post(
 
       const order = await prisma.order.findUnique({
         where: { id: orderId },
-        include: { payments: true },
+        include: {
+          payments: true,
+          orderLines: {
+            include: {
+              option: {
+                include: {
+                  catalogItem: {
+                    include: { stockItem: true }
+                  }
+                }
+              }
+            }
+          }
+        },
       });
 
       if (!order) {
@@ -343,23 +356,60 @@ router.post(
         throw new ApiError(400, 'INVALID_REFUND_AMOUNT', 'Refund amount exceeds total paid');
       }
 
-      // Create negative payment for refund
-      const refund = await prisma.payment.create({
-        data: {
-          orderId,
-          amount: refundAmount.negated(),
-          currency: 'EUR',
-          method: 'Cash', // Simplified - in practice, match original payment method
-        },
+      // Perform refund in transaction to handle payment and inventory restoration
+      const result = await prisma.$transaction(async (tx) => {
+        // Create negative payment for refund
+        const refund = await tx.payment.create({
+          data: {
+            orderId,
+            amount: refundAmount.negated(),
+            currency: 'EUR', // Simplified - in practice use order currency
+            method: 'Cash', // Default to Cash for refund record, or could match original
+            giftCardId: undefined, // Not refunding to gift card logic here for simplicity
+          },
+        });
+
+        // Update order status
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: 'Refunded' },
+        });
+
+        // Restore stock for items
+        for (const line of order.orderLines) {
+          const stockItem = line.option?.catalogItem?.stockItem;
+          
+          if (stockItem) {
+            const qty = new Decimal(line.qty);
+            
+            // Record stock movement
+            await tx.stockMovement.create({
+              data: {
+                stockItemId: stockItem.id,
+                orderLineId: line.id,
+                type: 'Return', // Using 'Return' to signify restoration
+                delta: qty, // Positive delta adds back to stock
+                unitCostSnapshot: stockItem.averageUnitCost,
+                notes: `Refund for Order #${orderId} - ${reason || 'Manual refund'}`,
+              }
+            });
+
+            // Increment stock quantity
+            await tx.stockItem.update({
+              where: { id: stockItem.id },
+              data: {
+                qtyOnHand: {
+                  increment: qty,
+                },
+              },
+            });
+          }
+        }
+
+        return refund;
       });
 
-      // Update order status
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { status: 'Refunded' },
-      });
-
-      res.status(201).json(refund);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }

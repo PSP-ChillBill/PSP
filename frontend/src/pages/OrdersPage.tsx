@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2 } from 'lucide-react';
+import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2, RotateCcw } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { CURRENCY_SYMBOLS } from '../lib/currencies';
 
@@ -12,18 +12,23 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [filterStatus, setFilterStatus] = useState<string>('Open');
 
   useEffect(() => {
     loadOrders();
-  }, []);
+  }, [filterStatus]);
 
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/orders', {
-        params: { businessId: user?.businessId, status: 'Open' },
-      });
+      const params: any = { businessId: user?.businessId };
+      if (filterStatus !== 'All') {
+        params.status = filterStatus;
+      }
+      
+      const response = await api.get('/orders', { params });
       setOrders(response.data);
     } catch (error) {
       toast.error('Failed to load orders');
@@ -41,6 +46,11 @@ export default function OrdersPage() {
     setShowPaymentModal(true);
   };
 
+  const handleOpenRefund = (order: any) => {
+    setSelectedOrder(order);
+    setShowRefundModal(true);
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -54,6 +64,22 @@ export default function OrdersPage() {
         </button>
       </div>
 
+      <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
+        {['Open', 'Closed', 'Refunded', 'All'].map((status) => (
+          <button
+            key={status}
+            onClick={() => setFilterStatus(status)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
+              filterStatus === status
+                ? 'bg-primary-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+            }`}
+          >
+            {status === 'All' ? 'All Orders' : status}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -63,7 +89,7 @@ export default function OrdersPage() {
           {orders.length === 0 ? (
             <div className="col-span-2 text-center py-12 bg-white rounded-lg shadow">
               <ShoppingCart className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No open orders</p>
+              <p className="text-gray-500">No {filterStatus !== 'All' ? filterStatus.toLowerCase() : ''} orders found</p>
             </div>
           ) : (
             orders.map((order) => (
@@ -77,7 +103,15 @@ export default function OrdersPage() {
                       {order.employee?.name} • {new Date(order.createdAt).toLocaleString()}
                     </p>
                   </div>
-                  <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                  <span
+                    className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                      order.status === 'Open'
+                        ? 'bg-blue-100 text-blue-800'
+                        : order.status === 'Closed'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}
+                  >
                     {order.status}
                   </span>
                 </div>
@@ -108,12 +142,27 @@ export default function OrdersPage() {
                 </div>
 
                 <div className="mt-4 flex space-x-2">
-                  <button
-                    onClick={() => handleOpenPayment(order)}
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-                  >
-                    Process Payment
-                  </button>
+                  {order.status === 'Open' ? (
+                    <button
+                      onClick={() => handleOpenPayment(order)}
+                      className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center space-x-2"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Process Payment</span>
+                    </button>
+                  ) : order.status === 'Closed' ? (
+                    <button
+                      onClick={() => handleOpenRefund(order)}
+                      className="flex-1 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition flex items-center justify-center space-x-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Refund Order</span>
+                    </button>
+                  ) : (
+                    <div className="flex-1 px-4 py-2 bg-gray-50 text-gray-500 rounded-lg text-center text-sm">
+                      Refunded
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -138,6 +187,119 @@ export default function OrdersPage() {
           onSuccess={loadOrders}
         />
       )}
+
+      {showRefundModal && selectedOrder && (
+        <RefundModal
+          order={selectedOrder}
+          onClose={() => {
+            setShowRefundModal(false);
+            setSelectedOrder(null);
+          }}
+          onSuccess={loadOrders}
+        />
+      )}
+    </div>
+  );
+}
+
+function RefundModal({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
+  const [amount, setAmount] = useState(calculateOrderTotal(order).toFixed(2));
+  const [reason, setReason] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  const maxAmount = calculateOrderTotal(order);
+
+  const handleRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (parseFloat(amount) > maxAmount) {
+      toast.error('Refund amount cannot exceed original order total');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      await api.post('/payments/refund', {
+        orderId: order.id,
+        amount: parseFloat(amount),
+        reason,
+      });
+      toast.success('Order refunded successfully');
+      onSuccess();
+      onClose();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Refund failed');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white w-full max-w-md rounded-lg shadow-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Refund Order #{order.id}</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleRefund} className="p-6 space-y-4">
+          <div className="bg-red-50 p-4 rounded-lg">
+            <p className="text-sm text-red-800 font-medium">
+              Warning: This will refund the payment and restore inventory levels for items in this order.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Refund Amount (€)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              max={maxAmount}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Order Total: €{maxAmount.toFixed(2)}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Reason
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="e.g., Customer return, quality issue..."
+              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={processing}
+              className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {processing ? 'Processing...' : 'Confirm Refund'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
