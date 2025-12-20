@@ -372,7 +372,12 @@ export default function ReservationsPage() {
                     min={1}
                     className="w-24 px-3 py-2 border rounded"
                     value={newSeatCapacity}
-                    onChange={(e) => setNewSeatCapacity(parseInt(e.target.value || '1', 10))}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value || '1', 10);
+                      const safeValue =
+                        !Number.isNaN(parsed) && parsed >= 1 ? parsed : 1;
+                      setNewSeatCapacity(safeValue);
+                    }}
                   />
                   <button
                     onClick={addSeat}
