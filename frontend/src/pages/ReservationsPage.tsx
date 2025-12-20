@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
@@ -14,6 +14,14 @@ import {
   isSameDay,
   format,
 } from 'date-fns';
+
+const TIME_SLOT_OPTIONS = Array.from({ length: 24 * 2 }).map((_, i) => {
+  const hh = Math.floor(i / 2)
+    .toString()
+    .padStart(2, '0');
+  const mm = i % 2 === 0 ? '00' : '30';
+  return `${hh}:${mm}`;
+});
 
 export default function ReservationsPage() {
   const { user } = useAuthStore();
@@ -35,12 +43,7 @@ export default function ReservationsPage() {
   const [newSeatName, setNewSeatName] = useState('');
   const [newSeatCapacity, setNewSeatCapacity] = useState<number>(2);
 
-  useEffect(() => {
-    loadReservations();
-    loadSeats();
-  }, []);
-
-  const loadReservations = async () => {
+  const loadReservations = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/reservations', {
@@ -51,6 +54,151 @@ export default function ReservationsPage() {
       toast.error('Failed to load reservations');
     } finally {
       setLoading(false);
+    }
+  }, [user?.businessId]);
+
+  const loadSeats = useCallback(async () => {
+    try {
+      if (!user?.businessId) return;
+      const res = await api.get('/seats', { params: { businessId: user.businessId } });
+      setSeats(res.data);
+    } catch (e) {
+      // seats might not exist yet; avoid noisy error
+    }
+  }, [user?.businessId]);
+
+  useEffect(() => {
+    loadReservations();
+    loadSeats();
+  }, [loadReservations, loadSeats]);
+
+  const daysInCalendar = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    const days: Date[] = [];
+    let day = gridStart;
+    while (day <= gridEnd) {
+      days.push(day);
+      day = addDays(day, 1);
+    }
+    return days;
+  }, [currentMonth]);
+
+  const createReservation = async () => {
+    try {
+      if (!user?.businessId) return;
+      if (!selectedDate) {
+        toast.error('Please select a date');
+        return;
+      }
+      if (!customerName.trim()) {
+        toast.error('Please enter customer name');
+        return;
+      }
+      setCreating(true);
+      const [hh, mm] = selectedTime.split(':').map((v) => parseInt(v, 10));
+      const start = new Date(selectedDate);
+      start.setHours(hh, mm, 0, 0);
+
+      const payload = {
+        businessId: user.businessId,
+        customerName,
+        appointmentStart: start.toISOString(),
+        plannedDurationMin: durationMin,
+        services: [],
+        seatIds: selectedSeatIds,
+      };
+
+      await api.post('/reservations', payload);
+      toast.success('Reservation created');
+      setCustomerName('');
+      setSelectedSeatIds([]);
+      await Promise.all([loadReservations(), loadSeats()]);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to create reservation';
+      toast.error(msg);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const checkInReservation = async (id: number) => {
+    try {
+      await api.post(`/reservations/${id}/complete`);
+      toast.success('Reservation checked in');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to check in reservation';
+      toast.error(msg);
+    }
+  };
+
+  const cancelReservation = async (id: number) => {
+    try {
+      await api.post(`/reservations/${id}/cancel`);
+      toast.success('Reservation cancelled');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to cancel reservation';
+      toast.error(msg);
+    }
+  };
+
+  const expireReservations = async () => {
+    try {
+      await api.post('/reservations/expire');
+      toast.success('Expired overdue reservations');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to expire reservations';
+      toast.error(msg);
+    }
+  };
+
+  const deleteSeat = async (id: number) => {
+    try {
+      await api.delete(`/seats/${id}`);
+      setSelectedSeatIds((prev) => prev.filter((sid) => sid !== id));
+      await loadSeats();
+      toast.success('Seat deleted');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to delete seat';
+      toast.error(msg);
+    }
+  };
+
+  const deleteReservation = async (id: number) => {
+    try {
+      await api.delete(`/reservations/${id}`);
+      toast.success('Reservation deleted');
+      await loadReservations();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to delete reservation';
+      toast.error(msg);
+    }
+  };
+
+  const addSeat = async () => {
+    try {
+      if (!isManager) return;
+      if (!newSeatName.trim()) {
+        toast.error('Seat name is required');
+        return;
+      }
+      await api.post('/seats', {
+        businessId: user!.businessId,
+        name: newSeatName.trim(),
+        capacity: newSeatCapacity,
+      });
+      setNewSeatName('');
+      setNewSeatCapacity(2);
+      await loadSeats();
+      toast.success('Seat added');
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Failed to add seat';
+      toast.error(msg);
     }
   };
 
@@ -279,18 +427,11 @@ export default function ReservationsPage() {
                 value={selectedTime}
                 onChange={(e) => setSelectedTime(e.target.value)}
               >
-                {Array.from({ length: 24 * 2 }).map((_, i) => {
-                  const hh = Math.floor(i / 2)
-                    .toString()
-                    .padStart(2, '0');
-                  const mm = i % 2 === 0 ? '00' : '30';
-                  const label = `${hh}:${mm}`;
-                  return (
-                    <option key={label} value={label}>
-                      {label}
-                    </option>
-                  );
-                })}
+                {TIME_SLOT_OPTIONS.map((label) => (
+                  <option key={label} value={label}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -302,7 +443,13 @@ export default function ReservationsPage() {
                 step={15}
                 className="w-full px-3 py-2 border rounded"
                 value={durationMin}
-                onChange={(e) => setDurationMin(parseInt(e.target.value || '60', 10))}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const parsed = parseInt(raw, 10);
+                  const fallback = 60;
+                  const normalized = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+                  setDurationMin(Math.max(15, normalized));
+                }}
               />
             </div>
 
@@ -372,7 +519,12 @@ export default function ReservationsPage() {
                     min={1}
                     className="w-24 px-3 py-2 border rounded"
                     value={newSeatCapacity}
-                    onChange={(e) => setNewSeatCapacity(parseInt(e.target.value || '1', 10))}
+                    onChange={(e) => {
+                      const parsed = parseInt(e.target.value || '1', 10);
+                      const safeValue =
+                        !Number.isNaN(parsed) && parsed >= 1 ? parsed : 1;
+                      setNewSeatCapacity(safeValue);
+                    }}
                   />
                   <button
                     onClick={addSeat}

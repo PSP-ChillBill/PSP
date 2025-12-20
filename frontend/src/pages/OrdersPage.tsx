@@ -4,6 +4,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2 } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
+import { CURRENCY_SYMBOLS } from '../lib/currencies';
 
 export default function OrdersPage() {
   const { user } = useAuthStore();
@@ -107,7 +108,7 @@ export default function OrdersPage() {
                 </div>
 
                 <div className="mt-4 flex space-x-2">
-                  <button 
+                  <button
                     onClick={() => handleOpenPayment(order)}
                     className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
                   >
@@ -217,7 +218,7 @@ function NewOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
         const catalogItem = catalogItems.find(c => c.id === item.itemId);
         // Get or create default option
         let optionId = catalogItem?.options?.[0]?.id;
-        
+
         if (!optionId) {
           // Create default option if none exists
           const optRes = await api.post('/catalog/options', {
@@ -353,22 +354,85 @@ function NewOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess:
 function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
   const [processing, setProcessing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'CardCredit' | 'GiftCard'>('Cash');
+  const [selectedCurrency, setSelectedCurrency] = useState('EUR');
+  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number }>({ 'EUR': 1.0 });
   const [clientSecret, setClientSecret] = useState<string>('');
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
+  const [giftCardSearch, setGiftCardSearch] = useState('');
   
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
 
-  const orderTotal = calculateOrderTotal(order);
+  const baseOrderTotal = calculateOrderTotal(order);
+  const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
+  const orderTotal = parseFloat((baseOrderTotal * exchangeRate).toFixed(2));
+  const currencySymbol = CURRENCY_SYMBOLS[selectedCurrency] || selectedCurrency;
+
+  useEffect(() => {
+    loadExchangeRates();
+  }, []);
+
+  const loadExchangeRates = async () => {
+    try {
+      const res = await api.get('/payments/exchange-rates');
+      setExchangeRates(res.data.rates);
+    } catch (error: any) {
+      const message = error?.response?.data?.message || 'Could not get the exchange rates';
+      toast.error(message);
+    }
+  };
+
+  const searchGiftCards = (query: string) => {
+    if (!query.trim()) return giftCards;
+
+    const searchTerm = query.toLowerCase().trim();
+    
+    // Score each gift card based on how well it matches the search term
+    const scoredCards = giftCards.map((gc) => {
+      const code = gc.code.toLowerCase();
+      let score = 0;
+
+      // Exact match: highest priority
+      if (code === searchTerm) {
+        score = 1000;
+      }
+      // Starts with search term
+      else if (code.startsWith(searchTerm)) {
+        score = 500;
+      }
+      // Contains search term as complete substring
+      else if (code.includes(searchTerm)) {
+        score = 300;
+      }
+      // Levenshtein distance for typo tolerance
+      else {
+        const distance = levenshteinDistance(code, searchTerm);
+        // Give points based on how close (lower distance = higher score)
+        if (distance <= 3) {
+          score = Math.max(0, 100 - distance * 20);
+        }
+      }
+
+      return { ...gc, score };
+    });
+
+    // Filter out zero-score results and sort by score descending
+    return scoredCards
+      .filter((gc) => gc.score > 0)
+      .sort((a, b) => b.score - a.score);
+  };
+
+  const filteredGiftCards = searchGiftCards(giftCardSearch);
 
   useEffect(() => {
     if (paymentMethod === 'CardCredit') {
       createPaymentIntent();
     } else if (paymentMethod === 'GiftCard') {
       loadGiftCards();
+      setGiftCardSearch('');
     }
   }, [paymentMethod]);
 
@@ -377,7 +441,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
       const res = await api.post('/payments/create-intent', {
         orderId: order.id,
         amount: orderTotal,
-        currency: 'eur',
+        currency: selectedCurrency.toLowerCase(),
       });
       setClientSecret(res.data.clientSecret);
     } catch (error) {
@@ -415,9 +479,9 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         orderId: order.id,
         amount: orderTotal,
         method: 'Cash',
-        currency: 'EUR',
+        currency: selectedCurrency,
       });
-      
+
       await api.post(`/orders/${order.id}/close`);
       toast.success('Payment processed');
       onSuccess();
@@ -447,7 +511,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
       const parts = cardExpiry.split('/');
       const expMonth = parseInt(parts[0].trim());
       let expYear = parseInt(parts[1].trim());
-      
+
       // Handle 2-digit year (convert YY to YYYY)
       if (expYear < 100) {
         expYear = 2000 + expYear;
@@ -525,7 +589,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         orderId: order.id,
         amount: orderTotal,
         method: 'GiftCard',
-        currency: 'EUR',
+        currency: selectedCurrency,
         giftCardId: selectedGiftCard,
       });
 
@@ -553,7 +617,25 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
         <form onSubmit={handlePayment} className="p-6 space-y-4">
           <div className="bg-gray-50 rounded-lg p-4">
             <div className="text-sm text-gray-600 mb-1">Order #{order.id}</div>
-            <div className="text-2xl font-bold text-gray-900">€{orderTotal.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-gray-900">{currencySymbol}{orderTotal.toFixed(2)}</div>
+            {selectedCurrency !== 'EUR' && (
+              <div className="text-xs text-gray-500 mt-1">≈ €{baseOrderTotal.toFixed(2)} EUR</div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Currency</label>
+            <select
+              value={selectedCurrency}
+              onChange={(e) => setSelectedCurrency(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              {Object.keys(exchangeRates).map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency} {CURRENCY_SYMBOLS[currency] && ` (${CURRENCY_SYMBOLS[currency]})`}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -645,23 +727,36 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
           )}
 
           {paymentMethod === 'GiftCard' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Gift Card</label>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Select Gift Card</label>
               {giftCards.length === 0 ? (
                 <p className="text-sm text-gray-500">No active gift cards available</p>
               ) : (
-                <select
-                  value={selectedGiftCard ?? ''}
-                  onChange={(e) => setSelectedGiftCard(e.target.value ? parseInt(e.target.value) : null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                >
-                  <option value="">Choose a gift card...</option>
-                  {giftCards.map((gc) => (
-                    <option key={gc.id} value={gc.id}>
-                      {gc.code} - ${parseFloat(gc.balance).toFixed(2)} available
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <input
+                    type="text"
+                    placeholder="Search by gift card code..."
+                    value={giftCardSearch}
+                    onChange={(e) => setGiftCardSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <select
+                    value={selectedGiftCard ?? ''}
+                    onChange={(e) => setSelectedGiftCard(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Choose a gift card...</option>
+                    {filteredGiftCards.length === 0 ? (
+                      <option disabled>No matching gift cards</option>
+                    ) : (
+                      filteredGiftCards.map((gc) => (
+                        <option key={gc.id} value={gc.id}>
+                          {gc.code} - €{parseFloat(gc.balance).toFixed(2)} available
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </>
               )}
             </div>
           )}
@@ -679,7 +774,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
               disabled={processing || (paymentMethod === 'CardCredit' && !clientSecret)}
               className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
             >
-              {processing ? 'Processing...' : `Pay €${orderTotal.toFixed(2)}`}
+              {processing ? 'Processing...' : `Pay ${currencySymbol}${orderTotal.toFixed(2)}`}
             </button>
           </div>
         </form>
@@ -695,4 +790,25 @@ function calculateOrderTotal(order: any): number {
     const tax = lineTotal * (parseFloat(line.taxRateSnapshotPct) / 100);
     return sum + lineTotal + tax;
   }, 0);
+}
+
+function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
 }
