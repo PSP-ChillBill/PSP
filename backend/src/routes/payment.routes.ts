@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { body, param } from 'express-validator';
 import Stripe from 'stripe';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -7,18 +7,70 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ApiError, ForbiddenError } from '../middleware/errorHandler';
 import { validationResult } from 'express-validator';
 
-const router = Router();
+const router: Router = Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia',
+  apiVersion: '2023-10-16',
 });
 
-const validateRequest = (req: AuthRequest, res: any, next: any) => {
+// Exchange rates cache
+let exchangeRatesCache: { rates: { [key: string]: number }; timestamp: number } | null = null;
+const CACHE_DURATION = 1000 * 60 * 60; // 1 hour in milliseconds
+
+const validateRequest = (req: AuthRequest, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    throw ValidationError(errors.array().map(e => `${e.param}: ${e.msg}`));
+    throw ValidationError(errors.array().map((e: any) => `${e.param}: ${e.msg}`));
   }
   next();
 };
+
+// Fetch exchange rates from API with caching
+const fetchExchangeRates = async () => {
+  const now = Date.now();
+  
+  // Return cached rates if still valid
+  if (exchangeRatesCache && now - exchangeRatesCache.timestamp < CACHE_DURATION) {
+    return exchangeRatesCache.rates;
+  }
+
+  try {
+    // Using exchangerate-api.com free tier (no API key needed for basic usage)
+    const response = await fetch('https://open.er-api.com/v6/latest/eur');
+    
+    if (!response.ok) {
+      throw new Error(`Exchange rate API returned status ${response.status}`);
+    }
+    
+    const data = (await response.json()) as { rates?: { [key: string]: number } };
+    
+    if (!data.rates) {
+      throw new Error('No rates in API response');
+    }
+    
+    exchangeRatesCache = {
+      rates: data.rates,
+      timestamp: now,
+    };
+    return data.rates;
+  } catch (error) {
+    console.error('Failed to fetch exchange rates:', error);
+    throw new ApiError(503, 'EXCHANGE_RATE_UNAVAILABLE', 'Could not get the exchange rates');
+  }
+};
+
+// Get exchange rates endpoint
+router.get(
+  '/exchange-rates',
+  authenticate,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const rates = await fetchExchangeRates();
+      res.json({ rates });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 // Create payment intent (Stripe)
 router.post(
@@ -30,7 +82,7 @@ router.post(
     body('currency').optional().isString(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { orderId, amount, currency = 'eur' } = req.body;
 
@@ -82,7 +134,7 @@ router.post(
     body('stripePaymentIntentId').optional().isString(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { orderId, amount, method, tipPortion = 0, giftCardId, stripePaymentIntentId, currency = 'EUR' } = req.body;
 
@@ -177,7 +229,7 @@ router.post(
 router.get(
   '/',
   authenticate,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const businessId = req.user!.role === 'SuperAdmin'
         ? parseInt(req.query.businessId as string)
@@ -263,7 +315,7 @@ router.post(
     body('reason').optional().isString(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { orderId, amount, reason } = req.body;
 
