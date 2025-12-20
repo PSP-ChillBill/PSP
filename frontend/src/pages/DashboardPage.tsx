@@ -1,7 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
-import { TrendingUp, Users, ShoppingCart, DollarSign } from 'lucide-react';
+import { CalendarClock, Clock3, Gift, Package, TrendingUp, Users, ShoppingCart, DollarSign } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
+type ActivityItem = {
+  id: string;
+  type: 'order' | 'payment' | 'reservation' | 'stock' | 'giftcard';
+  occurredAt: string;
+  title: string;
+  description?: string;
+  actorName?: string;
+};
+
+type ActivityResponse = {
+  items: ActivityItem[];
+  nextCursor?: string;
+};
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
@@ -11,16 +26,18 @@ export default function DashboardPage() {
     todayReservations: 0,
     activeEmployees: 0,
   });
-  const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   useEffect(() => {
     loadStats();
-  }, []);
+    resetAndLoadActivity();
+  }, [user?.businessId]);
 
   const loadStats = async () => {
     try {
-      setLoading(true);
-      // In production, create a dedicated stats endpoint
+      setStatsLoading(true);
       const today = new Date().toISOString().split('T')[0];
       
       const [orders, reservations, employees] = await Promise.all([
@@ -30,7 +47,7 @@ export default function DashboardPage() {
       ]);
 
       setStats({
-        todaySales: 0, // Would calculate from closed orders
+        todaySales: 0,
         openOrders: orders.data.length,
         todayReservations: reservations.data.length,
         activeEmployees: employees.data.filter((e: any) => e.status === 'Active').length,
@@ -38,7 +55,29 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Failed to load stats:', error);
     } finally {
-      setLoading(false);
+      setStatsLoading(false);
+    }
+  };
+
+  const resetAndLoadActivity = () => {
+    setActivity([]);
+    loadActivity();
+  };
+
+  const loadActivity = async () => {
+    try {
+      setActivityLoading(true);
+      const params: Record<string, any> = {};
+      if (user?.businessId) params.businessId = user.businessId;
+      params.limit = 3;
+
+      const response = await api.get<ActivityResponse>('/activity', { params });
+      const nextItems = response.data.items || [];
+      setActivity(nextItems);
+    } catch (error) {
+      console.error('Failed to load activity:', error);
+    } finally {
+      setActivityLoading(false);
     }
   };
 
@@ -69,6 +108,22 @@ export default function DashboardPage() {
     },
   ];
 
+  const activityIconMap: Record<ActivityItem['type'], LucideIcon> = {
+    order: ShoppingCart,
+    payment: DollarSign,
+    reservation: CalendarClock,
+    stock: Package,
+    giftcard: Gift,
+  };
+
+  const activityColorMap: Record<ActivityItem['type'], string> = {
+    order: 'bg-blue-100 text-blue-700',
+    payment: 'bg-green-100 text-green-700',
+    reservation: 'bg-purple-100 text-purple-700',
+    stock: 'bg-amber-100 text-amber-700',
+    giftcard: 'bg-pink-100 text-pink-700',
+  };
+
   return (
     <div>
       <div className="mb-8">
@@ -76,7 +131,7 @@ export default function DashboardPage() {
         <p className="text-gray-600 mt-1">Welcome back, {user?.name}</p>
       </div>
 
-      {loading ? (
+      {statsLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
         </div>
@@ -100,8 +155,52 @@ export default function DashboardPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
-              <p className="text-gray-500">No recent activity</p>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">Recent Activity</h2>
+                {user?.role === 'Owner' && (
+                  <a
+                    href="/activity"
+                    className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                  >
+                    View more
+                  </a>
+                )}
+              </div>
+              {activityLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+                </div>
+              ) : activity.length === 0 ? (
+                <p className="text-gray-500">No recent activity</p>
+              ) : (
+                <div className="space-y-3">
+                  {activity.map((item) => {
+                    const Icon = activityIconMap[item.type] || Clock3;
+                    const colors = activityColorMap[item.type];
+                    return (
+                      <div key={item.id} className="flex items-start justify-between rounded-lg border border-gray-100 p-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`p-2 rounded-full ${colors}`}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                            {item.description && (
+                              <p className="text-sm text-gray-600">{item.description}</p>
+                            )}
+                            {item.actorName && (
+                              <p className="text-xs text-gray-500">By {item.actorName}</p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              {new Date(item.occurredAt).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-lg shadow p-6">
