@@ -685,23 +685,13 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
 
       // If Line-scoped discount, check if any eligible items exist in order
       if (discount.scope === 'Line') {
-        console.log('Checking Line discount eligibility:', {
-          discountCode: discount.code,
-          eligibilities: discount.eligibilities,
-          orderLines: order.orderLines
-        });
-        
         const hasEligibleItems = discount.eligibilities?.some((e: any) => {
           const isEligible = order.orderLines?.some((line: any) => {
             // Check both catalogItemId and optionId against eligibility catalogItemId
-            const match = (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId);
-            console.log(`Checking line catalogItemId ${line.catalogItemId} or optionId ${line.optionId} against eligibility ${e.catalogItemId}: ${match}`);
-            return match;
+            return (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId);
           });
           return isEligible;
         });
-        
-        console.log('Has eligible items:', hasEligibleItems);
         
         if (!hasEligibleItems) {
           toast.error('This discount does not apply to any items in this order');
