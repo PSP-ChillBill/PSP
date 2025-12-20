@@ -187,19 +187,39 @@ router.put(
         throw ForbiddenError('Cannot update discount from another business');
       }
 
+      const { eligibleItems, scope } = req.body;
+
       const updated = await prisma.discount.update({
         where: { id: discountId },
         data: req.body,
       });
 
-      res.json(updated);
+      // If scope is Line, update eligibilities to match provided eligibleItems
+      if (scope === 'Line') {
+        await prisma.discountEligibility.deleteMany({ where: { discountId } });
+        if (eligibleItems && Array.isArray(eligibleItems) && eligibleItems.length > 0) {
+          await prisma.discountEligibility.createMany({
+            data: eligibleItems.map((catalogItemId: number) => ({ discountId, catalogItemId })),
+          });
+        }
+      } else {
+        // If scope is Order, remove any existing eligibilities
+        await prisma.discountEligibility.deleteMany({ where: { discountId } });
+      }
+
+      const full = await prisma.discount.findUnique({
+        where: { id: discountId },
+        include: { eligibilities: { include: { catalogItem: true } } },
+      });
+
+      res.json(full);
     } catch (error) {
       next(error);
     }
   }
 );
 
-// Deactivate discount
+// Delete discount (hard delete)
 router.delete(
   '/:id',
   authenticate,
@@ -222,12 +242,17 @@ router.delete(
         throw ForbiddenError('Cannot delete discount from another business');
       }
 
-      const updated = await prisma.discount.update({
-        where: { id: discountId },
-        data: { status: 'Inactive' },
-      });
+      // Clean up references before deleting to avoid FK issues
+      await prisma.$transaction([
+        prisma.order.updateMany({
+          where: { discountId },
+          data: { discountId: null },
+        }),
+        prisma.discountEligibility.deleteMany({ where: { discountId } }),
+        prisma.discount.delete({ where: { id: discountId } }),
+      ]);
 
-      res.json(updated);
+      res.status(204).send();
     } catch (error) {
       next(error);
     }

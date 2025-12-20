@@ -22,6 +22,9 @@ export default function DiscountsPage() {
   const [formValue, setFormValue] = useState('10');
   const [formStartsAt, setFormStartsAt] = useState(new Date().toISOString().slice(0, 10));
   const [formEndsAt, setFormEndsAt] = useState('');
+  const [editingDiscountId, setEditingDiscountId] = useState<number | null>(null);
+  const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [selectedCatalogItemId, setSelectedCatalogItemId] = useState<number | null>(null);
 
   const submitCreateDiscount = async () => {
     try {
@@ -65,11 +68,23 @@ export default function DiscountsPage() {
         value,
         startsAt: startsAt.toISOString(),
       };
+      if (formScope === 'Line') {
+        if (!selectedCatalogItemId) {
+          toast.error('Please select a catalog item');
+          return;
+        }
+        payload.eligibleItems = [selectedCatalogItemId];
+      }
       if (endsAtIso) payload.endsAt = endsAtIso;
 
       setLoading(true);
-      await api.post('/discounts', payload);
-      toast.success('Discount created');
+      if (editingDiscountId) {
+        await api.put(`/discounts/${editingDiscountId}`, payload);
+        toast.success('Discount updated');
+      } else {
+        await api.post('/discounts', payload);
+        toast.success('Discount created');
+      }
       setShowCreateModal(false);
       // reset form
       setFormCode('');
@@ -78,6 +93,8 @@ export default function DiscountsPage() {
       setFormValue('10');
       setFormStartsAt(new Date().toISOString().slice(0, 10));
       setFormEndsAt('');
+      setSelectedCatalogItemId(null);
+      setEditingDiscountId(null);
       await loadDiscounts();
     } catch (err) {
       console.error(err);
@@ -87,9 +104,97 @@ export default function DiscountsPage() {
     }
   };
 
+  const openEditModal = (discount: any) => {
+    setEditingDiscountId(discount.id);
+    setFormCode(discount.code || '');
+    setFormType(discount.type || 'Percent');
+    setFormScope(discount.scope || 'Order');
+    setFormValue(discount.value != null ? String(discount.value) : '10');
+    setFormStartsAt(discount.startsAt ? discount.startsAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    setFormEndsAt(discount.endsAt ? discount.endsAt.slice(0, 10) : '');
+    const firstEligibility = discount.eligibilities && discount.eligibilities[0];
+    setSelectedCatalogItemId(firstEligibility ? firstEligibility.catalogItemId : null);
+    setShowCreateModal(true);
+  };
+
+  const deleteDiscount = async (id: number) => {
+    if (!confirm('Delete this discount?')) return;
+    try {
+      setLoading(true);
+      await api.delete(`/discounts/${id}`, { params: { businessId: user?.businessId } });
+      toast.success('Discount deleted');
+      setDiscounts((prev) => prev.filter((d) => d.id !== id));
+      await loadDiscounts();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete discount');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deactivateDiscount = async (discount: any) => {
+    if (discount.status === 'Inactive') {
+      toast.success('Already inactive');
+      return;
+    }
+    if (!confirm('Deactivate this discount?')) return;
+    await updateDiscountStatus(discount, 'Inactive');
+  };
+
+  const activateDiscount = async (discount: any) => {
+    if (discount.status === 'Active') {
+      toast.success('Already active');
+      return;
+    }
+    if (!confirm('Activate this discount?')) return;
+    await updateDiscountStatus(discount, 'Active');
+  };
+
+  const updateDiscountStatus = async (discount: any, status: 'Active' | 'Inactive') => {
+    try {
+      setLoading(true);
+      const payload: any = {
+        businessId: user?.businessId,
+        code: discount.code,
+        type: discount.type,
+        scope: discount.scope,
+        value: discount.value,
+        startsAt: discount.startsAt,
+        status,
+      };
+      if (discount.endsAt) payload.endsAt = discount.endsAt;
+      await api.put(`/discounts/${discount.id}`, payload);
+      toast.success(`Discount ${status === 'Active' ? 'activated' : 'deactivated'}`);
+      await loadDiscounts();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to update discount status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDiscounts();
   }, []);
+
+  // Load catalog items when modal opens or scope switches to Line (Catalog Item)
+  useEffect(() => {
+    const loadCatalogItems = async () => {
+      if (!showCreateModal || formScope !== 'Line') return;
+      try {
+        const res = await api.get('/catalog/items', {
+          params: { businessId: user?.businessId },
+        });
+        setCatalogItems(res.data || []);
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to load catalog items');
+      }
+    };
+    loadCatalogItems();
+  }, [showCreateModal, formScope, user?.businessId]);
 
   const loadDiscounts = async () => {
     try {
@@ -157,11 +262,29 @@ export default function DiscountsPage() {
                     onChange={(e) => setFormScope(e.target.value)}
                     className="mt-1 block w-full border rounded-md px-3 py-2"
                   >
-                    <option>Order</option>
-                    <option>Line</option>
+                    <option value="Order">Order</option>
+                    <option value="Line">Catalog Item</option>
                   </select>
                 </div>
               </div>
+
+              {formScope === 'Line' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Catalog Item</label>
+                  <select
+                    value={selectedCatalogItemId ?? ''}
+                    onChange={(e) => setSelectedCatalogItemId(e.target.value ? Number(e.target.value) : null)}
+                    className="mt-1 block w-full border rounded-md px-3 py-2"
+                  >
+                    <option value="">Select item</option>
+                    {catalogItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700">Value</label>
@@ -209,7 +332,7 @@ export default function DiscountsPage() {
                 className="px-4 py-2 rounded bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-60"
                 disabled={loading}
               >
-                Create
+                {editingDiscountId ? 'Confirm' : 'Create'}
               </button>
             </div>
           </div>
@@ -262,6 +385,36 @@ export default function DiscountsPage() {
                   {discount.endsAt && (
                     <p>Ends: {new Date(discount.endsAt).toLocaleDateString()}</p>
                   )}
+                
+                  <div className="mt-4 flex space-x-2">
+                    <button
+                      onClick={() => openEditModal(discount)}
+                      className="px-3 py-1 rounded bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                    >
+                      Edit
+                    </button>
+                    {discount.status === 'Active' ? (
+                      <button
+                        onClick={() => deactivateDiscount(discount)}
+                        className="px-3 py-1 rounded bg-blue-100 text-blue-800 hover:bg-blue-200"
+                      >
+                        Deactivate
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => activateDiscount(discount)}
+                        className="px-3 py-1 rounded bg-green-100 text-green-800 hover:bg-green-200"
+                      >
+                        Activate
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteDiscount(discount.id)}
+                      className="px-3 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
