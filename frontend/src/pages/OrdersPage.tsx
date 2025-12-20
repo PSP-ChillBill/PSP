@@ -556,51 +556,26 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [giftCards, setGiftCards] = useState<any[]>([]);
   const [selectedGiftCard, setSelectedGiftCard] = useState<number | null>(null);
   const [giftCardSearch, setGiftCardSearch] = useState('');
-  const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
   const [showDiscountInput, setShowDiscountInput] = useState(false);
   const [discountCodeInput, setDiscountCodeInput] = useState('');
+  const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [existingPayments, setExistingPayments] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [amountToPay, setAmountToPay] = useState('');
+  const [currentOrder, setCurrentOrder] = useState(order);
   
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
 
-  const baseOrderTotal = calculateOrderTotal(order);
+  const baseOrderTotal = calculateOrderTotal(currentOrder);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
   
-  // Calculate discounted total
-  let orderTotal = baseOrderTotal;
-  if (appliedDiscount) {
-    if (appliedDiscount.scope === 'Order') {
-      // Apply to whole order
-      if (appliedDiscount.type === 'Percent') {
-        orderTotal = parseFloat((baseOrderTotal * (1 - appliedDiscount.value / 100)).toFixed(2));
-      } else {
-        orderTotal = Math.max(0, parseFloat((baseOrderTotal - appliedDiscount.value).toFixed(2)));
-      }
-    } else if (appliedDiscount.scope === 'Line') {
-      // Apply to eligible items in order
-      let discountAmount = 0;
-      order.orderLines?.forEach((line: any) => {
-        // Check both catalogItemId and optionId against eligibility
-        const isEligible = appliedDiscount.eligibilities?.some((e: any) => 
-          (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId)
-        );
-        if (isEligible) {
-          const lineTotal = parseFloat(line.unitPriceSnapshot) * parseFloat(line.qty);
-          if (appliedDiscount.type === 'Percent') {
-            discountAmount += lineTotal * (appliedDiscount.value / 100);
-          } else {
-            discountAmount += appliedDiscount.value;
-          }
-        }
-      });
-      orderTotal = Math.max(0, parseFloat((baseOrderTotal - discountAmount).toFixed(2)));
-    }
-  }
+  // Use order total (backend already applied discount if any)
+  const orderTotal = baseOrderTotal;
+  const discountAmount = currentOrder.discountAmount || 0;
+  const appliedDiscount = currentOrder.discount || null;
   
   const totalPaidBase = existingPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
   const remainingBase = Math.max(0, orderTotal - totalPaidBase);
@@ -699,39 +674,36 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     }
 
     try {
-      const res = await api.get('/discounts', {
-        params: { businessId: order.businessId },
+      setApplyingDiscount(true);
+      // Send discount code to backend to apply it to the order
+      const res = await api.post(`/orders/${currentOrder.id}/apply-discount`, {
+        discountCode: discountCodeInput.trim(),
       });
       
-      const discount = res.data.find((d: any) => d.code.toLowerCase() === discountCodeInput.toLowerCase() && d.status === 'Active');
-      
-      if (!discount) {
-        toast.error('Discount code not found or inactive');
-        return;
-      }
-
-      // If Line-scoped discount, check if any eligible items exist in order
-      if (discount.scope === 'Line') {
-        const hasEligibleItems = discount.eligibilities?.some((e: any) => {
-          const isEligible = order.orderLines?.some((line: any) => {
-            // Check both catalogItemId and optionId against eligibility catalogItemId
-            return (line.catalogItemId === e.catalogItemId) || (line.optionId === e.catalogItemId);
-          });
-          return isEligible;
-        });
-        
-        if (!hasEligibleItems) {
-          toast.error('This discount does not apply to any items in this order');
-          return;
-        }
-      }
-
-      setAppliedDiscount(discount);
+      // Reload the order with updated discount information
+      const updatedOrder = res.data;
+      setCurrentOrder(updatedOrder);
       setShowDiscountInput(false);
       setDiscountCodeInput('');
       toast.success(`Discount "${discountCodeInput}" applied!`);
-    } catch (error) {
-      toast.error('Failed to apply discount');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to apply discount');
+    } finally {
+      setApplyingDiscount(false);
+    }
+  };
+
+  const removeDiscount = async () => {
+    try {
+      setApplyingDiscount(true);
+      const res = await api.delete(`/orders/${currentOrder.id}/discount`);
+      const updatedOrder = res.data;
+      setCurrentOrder(updatedOrder);
+      toast.success('Discount removed');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to remove discount');
+    } finally {
+      setApplyingDiscount(false);
     }
   };
 
@@ -764,7 +736,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     setExistingPayments(updatedPayments);
 
     const paid = updatedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
-    const total = baseOrderTotal;
+    const total = orderTotal; // Use discounted total if discount is applied
     
     // If fully paid, close
     if (paid >= total - 0.01) {
@@ -893,8 +865,9 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
                         </span>
                         <button
                           type="button"
-                          onClick={() => setAppliedDiscount(null)}
-                          className="text-xs text-red-600 hover:text-red-800 font-medium"
+                          onClick={removeDiscount}
+                          disabled={applyingDiscount}
+                          className="text-xs text-red-600 hover:text-red-800 font-medium disabled:opacity-50"
                         >
                           Remove
                         </button>
@@ -919,9 +892,10 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
                           <button
                             type="button"
                             onClick={applyDiscount}
-                            className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700"
+                            disabled={applyingDiscount}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
                           >
-                            Apply
+                            {applyingDiscount ? 'Applying...' : 'Apply'}
                           </button>
                         </div>
                       </div>
@@ -1096,21 +1070,26 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
 
           <div className="w-full md:w-80 bg-gray-50 border-l border-gray-200 p-6 overflow-y-auto">
              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 mb-6 space-y-3">
-                <h3 className="font-semibold text-gray-900 border-b pb-2 mb-2">Order #{order.id}</h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
-                </div>
-                {appliedDiscount && (
-                  <div className="flex justify-between text-sm text-green-600">
-                    <span>Discount</span>
-                    <span>- €{(baseOrderTotal - orderTotal).toFixed(2)}</span>
-                  </div>
-                )}
-                {appliedDiscount && orderTotal !== baseOrderTotal && (
-                  <div className="flex justify-between text-sm font-medium pt-1 border-t">
-                    <span className="text-gray-600">Order Total</span>
-                    <span>€{orderTotal.toFixed(2)}</span>
+                <h3 className="font-semibold text-gray-900 border-b pb-2 mb-2">Order #{currentOrder.id}</h3>
+                {discountAmount > 0 ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Subtotal</span>
+                      <span className="font-medium">€{(baseOrderTotal + discountAmount).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span>Discount</span>
+                      <span>- €{discountAmount.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-medium pt-1 border-t">
+                      <span className="text-gray-600">Order Total</span>
+                      <span>€{orderTotal.toFixed(2)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Total</span>
+                    <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm text-green-600">

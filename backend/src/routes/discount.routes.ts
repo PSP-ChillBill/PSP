@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { body, param } from 'express-validator';
 import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
@@ -6,12 +6,12 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError, ApiError } from '../middleware/errorHandler';
 import { validationResult } from 'express-validator';
 
-const router = Router();
+const router: Router = Router();
 
-const validateRequest = (req: AuthRequest, res: any, next: any) => {
+const validateRequest = (req: AuthRequest, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    throw ValidationError(errors.array().map(e => `${e.param}: ${e.msg}`));
+    throw ValidationError(errors.array().map((e: any) => `${e.path || e.param}: ${e.msg}`));
   }
   next();
 };
@@ -30,7 +30,7 @@ router.post(
     body('startsAt').isISO8601(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { businessId, code, type, scope, value, startsAt, endsAt, eligibleItems } = req.body;
 

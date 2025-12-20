@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { body, param } from 'express-validator';
 import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../lib/prisma';
@@ -6,12 +6,12 @@ import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { NotFoundError, ValidationError, ApiError, ForbiddenError, ConflictError } from '../middleware/errorHandler';
 import { validationResult } from 'express-validator';
 
-const router = Router();
+const router: Router = Router();
 
-const validateRequest = (req: AuthRequest, res: any, next: any) => {
+const validateRequest = (req: AuthRequest, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    throw ValidationError(errors.array().map(e => `${e.param}: ${e.msg}`));
+    throw ValidationError(errors.array().map((e: any) => `${e.path || e.param}: ${e.msg}`));
   }
   next();
 };
@@ -46,7 +46,7 @@ router.post(
     body('tableOrArea').optional().isString(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { businessId, reservationId, tableOrArea } = req.body;
 
@@ -105,11 +105,33 @@ router.get(
           },
           payments: true,
           reservation: true,
+          discount: true,
         },
         orderBy: { createdAt: 'desc' },
       });
 
-      res.json(orders);
+      // Add calculated discount amounts
+      const ordersWithDiscounts = orders.map(order => {
+        let discountAmount = 0;
+        
+        if (order.discountId && order.orderDiscountSnapshot) {
+          try {
+            const discountData = JSON.parse(order.orderDiscountSnapshot as string);
+            if (discountData.appliedAmount) {
+              discountAmount = parseFloat(discountData.appliedAmount);
+            }
+          } catch (e) {
+            // If parsing fails, discountAmount stays 0
+          }
+        }
+
+        return {
+          ...order,
+          discountAmount,
+        };
+      });
+
+      res.json(ordersWithDiscounts);
     } catch (error) {
       next(error);
     }
@@ -153,7 +175,25 @@ router.get(
         throw ForbiddenError('Access denied');
       }
 
-      res.json(order);
+      // Add calculated discount amount
+      let discountAmount = 0;
+      if (order.discountId && order.orderDiscountSnapshot) {
+        try {
+          const discountData = JSON.parse(order.orderDiscountSnapshot as string);
+          if (discountData.appliedAmount) {
+            discountAmount = parseFloat(discountData.appliedAmount);
+          }
+        } catch (e) {
+          // If parsing fails, discountAmount stays 0
+        }
+      }
+
+      const response = {
+        ...order,
+        discountAmount,
+      };
+
+      res.json(response);
     } catch (error) {
       next(error);
     }
@@ -313,7 +353,7 @@ router.post(
     body('qty').isDecimal(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
       const { optionId, qty } = req.body;
@@ -384,7 +424,7 @@ router.put(
     body('qty').isDecimal(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
       const lineId = parseInt(req.params.lineId);
@@ -423,7 +463,7 @@ router.delete(
     param('lineId').isInt(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
       const lineId = parseInt(req.params.lineId);
@@ -453,17 +493,173 @@ router.delete(
 
 // Apply discount to order
 router.post(
-  '/:id/discount',
+  '/:id/apply-discount',
   authenticate,
   [
     param('id').isInt(),
-    body('discountId').isInt(),
+    body('discountCode').notEmpty(),
   ],
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const { discountCode } = req.body;
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          orderLines: {
+            include: {
+              option: {
+                include: {
+                  catalogItem: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw NotFoundError('Order', orderId);
+      }
+
+      if (order.status !== 'Open') {
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed order');
+      }
+
+      // Find discount by code and business
+      const discount = await prisma.discount.findUnique({
+        where: {
+          businessId_code: {
+            businessId: order.businessId,
+            code: discountCode,
+          },
+        },
+        include: {
+          eligibilities: true,
+        },
+      });
+
+      if (!discount || discount.status !== 'Active') {
+        throw new ApiError(404, 'DISCOUNT_NOT_FOUND', 'Discount code not found or inactive');
+      }
+
+      // Check if discount is valid for the time
+      const now = new Date();
+      if (discount.startsAt > now || (discount.endsAt && discount.endsAt < now)) {
+        throw new ApiError(400, 'INVALID_DISCOUNT', 'Discount is not currently valid');
+      }
+
+      // Calculate order total before discount
+      const orderTotal = order.orderLines.reduce((sum, line) => {
+        const unitPrice = new Decimal(line.unitPriceSnapshot);
+        const qty = new Decimal(line.qty);
+        const taxRate = new Decimal(line.taxRateSnapshotPct);
+        const lineBase = unitPrice.times(qty);
+        const lineTax = lineBase.times(taxRate).div(100);
+        return sum.plus(lineBase).plus(lineTax);
+      }, new Decimal(0));
+
+      // Calculate discount amount
+      let discountAmount = new Decimal(0);
+
+      if (discount.scope === 'Order') {
+        // Apply discount to entire order
+        if (discount.type === 'Percent') {
+          discountAmount = orderTotal.times(discount.value).div(100);
+        } else {
+          // Amount type
+          discountAmount = new Decimal(discount.value);
+        }
+      } else if (discount.scope === 'Line') {
+        // Apply discount to eligible line items only
+        const eligibleItemIds = discount.eligibilities.map(e => e.catalogItemId);
+        
+        // Check if any eligible items exist in order
+        const hasEligibleItems = order.orderLines.some(line => {
+          const catalogItemId = line.option?.catalogItem?.id;
+          return catalogItemId && (eligibleItemIds.includes(catalogItemId) || eligibleItemIds.includes(line.optionId!));
+        });
+
+        if (!hasEligibleItems) {
+          throw new ApiError(400, 'DISCOUNT_NOT_APPLICABLE', 'This discount does not apply to any items in this order');
+        }
+
+        // Calculate discount for eligible items
+        order.orderLines.forEach(line => {
+          const catalogItemId = line.option?.catalogItem?.id;
+          const isEligible = catalogItemId && (eligibleItemIds.includes(catalogItemId) || eligibleItemIds.includes(line.optionId!));
+          if (isEligible) {
+            const unitPrice = new Decimal(line.unitPriceSnapshot);
+            const qty = new Decimal(line.qty);
+            const lineTotal = unitPrice.times(qty);
+            
+            if (discount.type === 'Percent') {
+              discountAmount = discountAmount.plus(lineTotal.times(discount.value).div(100));
+            } else {
+              discountAmount = discountAmount.plus(discount.value);
+            }
+          }
+        });
+      }
+
+      // Ensure discount doesn't exceed order total
+      if (discountAmount.greaterThan(orderTotal)) {
+        discountAmount = orderTotal;
+      }
+
+      // Update order with discount
+      const updated = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          discountId: discount.id,
+          orderDiscountSnapshot: JSON.stringify({
+            code: discount.code,
+            type: discount.type,
+            value: discount.value.toString(),
+            scope: discount.scope,
+            appliedAmount: discountAmount.toString(),
+          }),
+        },
+        include: {
+          employee: { select: { id: true, name: true } },
+          orderLines: {
+            include: {
+              option: {
+                include: {
+                  catalogItem: true,
+                },
+              },
+            },
+          },
+          payments: true,
+          discount: true,
+        },
+      });
+
+      // Add discountAmount to response
+      const response = {
+        ...updated,
+        discountAmount: discountAmount.toNumber(),
+      };
+
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Remove discount from order
+router.delete(
+  '/:id/discount',
+  authenticate,
+  param('id').isInt(),
   validateRequest,
   async (req: AuthRequest, res, next) => {
     try {
       const orderId = parseInt(req.params.id);
-      const { discountId } = req.body;
 
       const order = await prisma.order.findUnique({
         where: { id: orderId },
@@ -477,34 +673,36 @@ router.post(
         throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed order');
       }
 
-      const discount = await prisma.discount.findUnique({
-        where: { id: discountId },
-      });
-
-      if (!discount || discount.status !== 'Active') {
-        throw NotFoundError('Discount', discountId);
-      }
-
-      // Check if discount is valid for the time
-      const now = new Date();
-      if (discount.startsAt > now || (discount.endsAt && discount.endsAt < now)) {
-        throw new ApiError(400, 'INVALID_DISCOUNT', 'Discount is not currently valid');
-      }
-
+      // Remove discount from order
       const updated = await prisma.order.update({
         where: { id: orderId },
         data: {
-          discountId,
-          orderDiscountSnapshot: JSON.stringify({
-            code: discount.code,
-            type: discount.type,
-            value: discount.value,
-            scope: discount.scope,
-          }),
+          discountId: null,
+          orderDiscountSnapshot: null,
+        },
+        include: {
+          employee: { select: { id: true, name: true } },
+          orderLines: {
+            include: {
+              option: {
+                include: {
+                  catalogItem: true,
+                },
+              },
+            },
+          },
+          payments: true,
+          discount: true,
         },
       });
 
-      res.json(updated);
+      // Add discountAmount to response (0 since discount removed)
+      const response = {
+        ...updated,
+        discountAmount: 0,
+      };
+
+      res.json(response);
     } catch (error) {
       next(error);
     }
@@ -535,7 +733,7 @@ router.post(
       }
 
       // Calculate totals using Decimal arithmetic
-      const orderLinesTotal = order.orderLines.reduce((sum, line) => {
+      let orderLinesTotal = order.orderLines.reduce((sum, line) => {
         const unitPrice = new Decimal(line.unitPriceSnapshot);
         const qty = new Decimal(line.qty);
         const taxRate = new Decimal(line.taxRateSnapshotPct);
@@ -544,6 +742,20 @@ router.post(
         const lineTax = lineTotal.times(taxRate).div(100);
         return sum.plus(lineTotal).plus(lineTax);
       }, new Decimal(0));
+
+      // Subtract discount if applied
+      let discountAmount = new Decimal(0);
+      if (order.discountId && order.orderDiscountSnapshot) {
+        try {
+          const discountData = JSON.parse(order.orderDiscountSnapshot as string);
+          if (discountData.appliedAmount) {
+            discountAmount = new Decimal(discountData.appliedAmount);
+            orderLinesTotal = orderLinesTotal.minus(discountAmount);
+          }
+        } catch (e) {
+          // If parsing fails, continue without discount
+        }
+      }
 
       const paymentsTotal = order.payments.reduce((sum, payment) => {
         return sum.plus(new Decimal(payment.amount));
