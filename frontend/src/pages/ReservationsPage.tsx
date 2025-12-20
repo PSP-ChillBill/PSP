@@ -302,7 +302,13 @@ export default function ReservationsPage() {
                 step={15}
                 className="w-full px-3 py-2 border rounded"
                 value={durationMin}
-                onChange={(e) => setDurationMin(parseInt(e.target.value || '60', 10))}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const parsed = parseInt(raw, 10);
+                  const fallback = 60;
+                  const normalized = Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+                  setDurationMin(Math.max(15, normalized));
+                }}
               />
             </div>
 
