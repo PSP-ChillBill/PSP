@@ -108,6 +108,11 @@ router.delete(
         throw ForbiddenError('Access denied');
       }
       await (prisma as any).seat.delete({ where: { id } });
+      
+      if (seat._count.reservations > 0) {
+        throw ConflictError('Cannot delete seat with reservation history. Use deactivate instead.', 'SEAT_HAS_HISTORY');
+      }
+      
       res.status(204).send();
     } catch (err) {
       next(err);
