@@ -5,7 +5,6 @@ import toast from 'react-hot-toast';
 import { Plus, ShoppingCart, X, Minus, CreditCard, Gift, Trash2, RotateCcw } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { CURRENCY_SYMBOLS } from '../lib/currencies';
-import { CURRENCY_SYMBOLS } from '../lib/currencies';
 
 export default function OrdersPage() {
   const { user } = useAuthStore();
@@ -143,12 +142,27 @@ export default function OrdersPage() {
                 </div>
 
                 <div className="mt-4 flex space-x-2">
-                  <button 
-                    onClick={() => handleOpenPayment(order)}
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-                  >
-                    Process Payment
-                  </button>
+                  {order.status === 'Open' ? (
+                    <button
+                      onClick={() => handleOpenPayment(order)}
+                      className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center space-x-2"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Process Payment</span>
+                    </button>
+                  ) : order.status === 'Closed' ? (
+                    <button
+                      onClick={() => handleOpenRefund(order)}
+                      className="flex-1 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition flex items-center justify-center space-x-2"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Refund Order</span>
+                    </button>
+                  ) : (
+                    <div className="flex-1 px-4 py-2 bg-gray-50 text-gray-500 rounded-lg text-center text-sm">
+                      Refunded
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -938,27 +952,6 @@ function calculateOrderTotal(order: any): number {
     const tax = lineTotal * (parseFloat(line.taxRateSnapshotPct) / 100);
     return sum + lineTotal + tax;
   }, 0);
-}
-
-function levenshteinDistance(str1: string, str2: string): number {
-  const m = str1.length;
-  const n = str2.length;
-  const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (str1[i - 1] === str2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1];
-      } else {
-        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-      }
-    }
-  }
-
-  return dp[m][n];
 }
 
 function levenshteinDistance(str1: string, str2: string): number {
