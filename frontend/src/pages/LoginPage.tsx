@@ -44,14 +44,14 @@ export default function LoginPage() {
         throw new Error('No credential received from Google');
       }
 
-      // Send token to backend
+// Send token to backend
       const res = await api.post('/auth/google', {
         token: response.credential,
       });
 
       const { token, user } = res.data;
 
-      // Store auth data
+// Store auth data
       setAuth(token, user);
       toast.success(`Welcome, ${user.name}!`);
       navigate(user?.businessId ? '/' : '/setup');
@@ -59,30 +59,6 @@ export default function LoginPage() {
       const message = error.response?.data?.message || error.message || 'Login failed';
       toast.error(message);
       console.error('Login error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Demo direct login (for development only)
-  const handleDemoLogin = async () => {
-    try {
-      setLoading(true);
-      // In production, remove this and only use Google OAuth
-      const demoUser = {
-        id: 1,
-        email: 'demo@example.com',
-        name: 'Demo User',
-        role: 'Owner',
-        businessId: 1,
-      };
-      const demoToken = 'demo-token';
-      
-      setAuth(demoToken, demoUser);
-      toast.success('Demo login successful');
-      navigate('/');
-    } catch (error: any) {
-      toast.error('Demo login failed');
     } finally {
       setLoading(false);
     }
@@ -102,23 +78,6 @@ export default function LoginPage() {
             className="flex justify-center"
             style={{ width: '100%' }}
           ></div>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or for demo</span>
-            </div>
-          </div>
-
-          <button
-            onClick={handleDemoLogin}
-            disabled={loading}
-            className="w-full px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50"
-          >
-            {loading ? 'Loading...' : 'Demo Login'}
-          </button>
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-500">
