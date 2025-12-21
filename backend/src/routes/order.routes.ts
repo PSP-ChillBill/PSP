@@ -808,7 +808,7 @@ router.post(
   authenticate,
   param('id').isInt(),
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: next, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
 
@@ -911,6 +911,50 @@ router.post(
       }
 
       res.json(closed);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  '/:id/cancel',
+  authenticate,
+  param('id').isInt(),
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const orderId = parseInt(req.params.id);
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { payments: true },
+      });
+
+      if (!order) {
+        throw NotFoundError('Order', orderId);
+      }
+
+      if (order.status !== 'Open') {
+        throw new ApiError(400, 'INVALID_OPERATION', 'Only open orders can be cancelled');
+      }
+
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== order.businessId) {
+        throw ForbiddenError('Access denied');
+      }
+
+      if (order.payments.length > 0) {
+        throw new ApiError(400, 'ORDER_HAS_PAYMENTS', 'Cannot cancel an order with existing payments. Please refund instead.');
+      }
+
+      const cancelledOrder = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'Cancelled',
+        },
+      });
+
+      res.json(cancelledOrder);
     } catch (error) {
       next(error);
     }

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, ShoppingCart, CreditCard, RotateCcw, Printer } from 'lucide-react';
+import { Plus, ShoppingCart, CreditCard, RotateCcw, Printer, X } from 'lucide-react';
 import PaymentModal from '../components/orders/PaymentModal';
 import RefundModal from '../components/orders/RefundModal';
 import NewOrderModal from '../components/orders/NewOrderModal';
@@ -53,6 +53,19 @@ export default function OrdersPage() {
     setShowRefundModal(true);
   };
 
+  const handleCancelOrder = async (orderId: number) => {
+    if (!confirm('Are you sure you want to cancel this order? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await api.post(`/orders/${orderId}/cancel`);
+      toast.success('Order cancelled');
+      loadOrders();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to cancel order');
+    }
+  };
+
   const handlePrintReceipt = async (orderId: number) => {
     try {
       const response = await api.get(`/orders/${orderId}/receipt`, {
@@ -86,7 +99,7 @@ export default function OrdersPage() {
       </div>
 
       <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
-        {['Open', 'Closed', 'Refunded', 'All'].map((status) => (
+        {['Open', 'Closed', 'Cancelled', 'Refunded', 'All'].map((status) => (
           <button
             key={status}
             onClick={() => setFilterStatus(status)}
@@ -138,6 +151,8 @@ export default function OrdersPage() {
                           ? 'bg-blue-100 text-blue-800'
                           : order.status === 'Closed'
                           ? 'bg-green-100 text-green-800'
+                          : order.status === 'Cancelled'
+                          ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800'
                       }`}
                     >
@@ -179,13 +194,22 @@ export default function OrdersPage() {
 
                 <div className="mt-4 flex space-x-2">
                   {order.status === 'Open' ? (
-                    <button
-                      onClick={() => handleOpenPayment(order)}
-                      className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center space-x-2"
-                    >
-                      <CreditCard className="w-4 h-4" />
-                      <span>Process Payment</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleOpenPayment(order)}
+                        className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition flex items-center justify-center space-x-2"
+                      >
+                        <CreditCard className="w-4 h-4" />
+                        <span>Process Payment</span>
+                      </button>
+                      <button
+                        onClick={() => handleCancelOrder(order.id)}
+                        className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition flex items-center justify-center space-x-2"
+                      >
+                        <X className="w-4 h-4" />
+                        <span>Cancel</span>
+                      </button>
+                    </>
                   ) : order.status === 'Closed' ? (
                     <button
                       onClick={() => handleOpenRefund(order)}
@@ -196,7 +220,7 @@ export default function OrdersPage() {
                     </button>
                   ) : (
                     <div className="flex-1 px-4 py-2 bg-gray-50 text-gray-500 rounded-lg text-center text-sm">
-                      Refunded
+                      {order.status}
                     </div>
                   )}
                 </div>
