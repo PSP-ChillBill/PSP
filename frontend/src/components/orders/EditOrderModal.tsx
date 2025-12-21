@@ -58,26 +58,58 @@ export default function EditOrderModal({ order, onClose, onSuccess }: { order: a
     return basePrice * (1 + taxRate / 100);
   };
 
-  const addItem = (item: any) => {
-    const existing = orderLines.find(line => line.option?.catalogItem?.id === item.id);
+  const addItem = async (item: any) => {
+    const existing = orderLines.find((line: any) => line.option?.catalogItem?.id === item.id);
     if (existing) {
       updateLineQty(existing.id, parseFloat(existing.qty) + 1);
     } else {
-      // Need to get or create an option first
-      const defaultOption = item.options?.[0];
-      if (defaultOption) {
-        addLineToOrder(defaultOption.id, 1);
+      let optionId = item.options?.[0]?.id;
+
+      if (!optionId) {
+        try {
+          const optRes = await api.post('/catalog/options', {
+            catalogItemId: item.id,
+            name: 'Standard',
+            priceModifier: 0,
+          });
+          optionId = optRes.data.id;
+          
+          setCatalogItems(prev => prev.map(i => 
+            i.id === item.id 
+              ? { ...i, options: [optRes.data] } 
+              : i
+          ));
+        } catch (error) {
+          toast.error('Failed to initialize item options');
+          return;
+        }
+      }
+
+      if (optionId) {
+        addLineToOrder(optionId, 1, item);
       }
     }
   };
 
-  const addLineToOrder = async (optionId: number, qty: number) => {
+  const addLineToOrder = async (optionId: number, qty: number, item?: any) => {
     try {
       const response = await api.post(`/orders/${order.id}/lines`, {
         optionId,
         qty,
       });
-      setOrderLines([...orderLines, { ...response.data, option: { catalogItem: catalogItems.find(c => c.id === optionId) } }]);
+      
+      let catalogItem = item;
+      if (!catalogItem) {
+        catalogItem = catalogItems.find(c => c.options?.some((o: any) => o.id === optionId));
+      }
+
+      setOrderLines([...orderLines, { 
+        ...response.data, 
+        option: { 
+          id: optionId,
+          catalogItem: catalogItem 
+        } 
+      }]);
       toast.success('Item added');
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to add item');
