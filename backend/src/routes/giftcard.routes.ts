@@ -163,6 +163,66 @@ router.get(
   }
 );
 
+// Edit gift card (expiration / initial value)
+router.put(
+  '/:id',
+  authenticate,
+  authorize('SuperAdmin', 'Owner', 'Manager'),
+  [
+    param('id').isInt(),
+    body('initialValue').optional().isDecimal(),
+    body('expiresAt').optional({ nullable: true }).isISO8601(),
+  ],
+  validateRequest,
+  async (req: AuthRequest, res, next) => {
+    try {
+      const giftCardId = parseInt(req.params.id);
+      const { initialValue, expiresAt } = req.body;
+
+      const giftCard = await prisma.giftCard.findUnique({
+        where: { id: giftCardId },
+      });
+
+      if (!giftCard) {
+        throw NotFoundError('Gift card', giftCardId);
+      }
+
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== giftCard.businessId) {
+        throw ForbiddenError('Cannot modify gift card from another business');
+      }
+
+      if (giftCard.status === 'Expired') {
+        throw ConflictError('Cannot edit expired gift cards');
+      }
+
+      const data: any = {};
+
+      if (initialValue !== undefined) {
+        if (!giftCard.balance.equals(giftCard.initialValue)) {
+          throw ConflictError('Cannot change value of a used gift card');
+        }
+
+        const value = new Decimal(initialValue);
+        data.initialValue = value;
+        data.balance = value;
+      }
+
+      if (expiresAt !== undefined) {
+        data.expiresAt = expiresAt ? new Date(expiresAt) : null;
+      }
+
+      const updated = await prisma.giftCard.update({
+        where: { id: giftCardId },
+        data,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Block/unblock gift card
 router.put(
   '/:id/status',
