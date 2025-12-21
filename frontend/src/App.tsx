@@ -12,6 +12,7 @@ import DiscountsPage from './pages/DiscountsPage';
 import GiftCardsPage from './pages/GiftCardsPage';
 import InventoryPage from './pages/InventoryPage';
 import ActivityLogPage from './pages/ActivityLogPage';
+import TaxManagementPage from './pages/TaxesPage';
 import Layout from './components/Layout';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -44,6 +45,7 @@ function App() {
         <Route path="gift-cards" element={<GiftCardsPage />} />
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="activity" element={<ActivityLogPage />} />
+        <Route path="taxes" element={<TaxManagementPage />} />
       </Route>
     </Routes>
   );
