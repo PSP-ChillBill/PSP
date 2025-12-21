@@ -7,7 +7,7 @@ import type { LucideIcon } from 'lucide-react';
 
 type ActivityItem = {
   id: string;
-  type: 'order' | 'payment' | 'reservation' | 'stock' | 'giftcard';
+  type: 'order' | 'payment' | 'reservation' | 'stock' | 'giftcard' | 'discount';
   occurredAt: string;
   title: string;
   description?: string;
@@ -81,6 +81,7 @@ export default function ActivityLogPage() {
     reservation: CalendarClock,
     stock: Package,
     giftcard: Gift,
+    discount: DollarSign,
   };
 
   const activityColorMap: Record<ActivityItem['type'], string> = {
@@ -89,6 +90,7 @@ export default function ActivityLogPage() {
     reservation: 'bg-purple-100 text-purple-700',
     stock: 'bg-amber-100 text-amber-700',
     giftcard: 'bg-pink-100 text-pink-700',
+    discount: 'bg-teal-100 text-teal-700',
   };
 
   return (

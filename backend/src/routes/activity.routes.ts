@@ -5,7 +5,7 @@ import { ForbiddenError } from '../middleware/errorHandler';
 
 type ActivityItem = {
   id: string;
-  type: 'order' | 'payment' | 'reservation' | 'stock' | 'giftcard';
+  type: 'order' | 'payment' | 'reservation' | 'stock' | 'giftcard' | 'discount';
   occurredAt: string;
   title: string;
   description?: string;
@@ -36,7 +36,7 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
     const perCategory = Math.min(Math.max(limit * 2, 40), 200);
     const cursor = req.query.cursor ? new Date(req.query.cursor as string) : null;
 
-    const [orders, payments, reservations, stockMovements, giftCards] = await Promise.all([
+    const [orders, payments, reservations, stockMovements, giftCards, discounts] = await Promise.all([
       prisma.order.findMany({
         where: { businessId },
         include: {
@@ -87,11 +87,28 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: perCategory,
       }),
+      prisma.discount.findMany({
+        where: { businessId },
+        orderBy: { createdAt: 'desc' },
+        take: perCategory,
+      }),
     ]);
 
     const events: ActivityItem[] = [];
 
     orders.forEach((order) => {
+      // Parse discount snapshot
+      let discountAmount = 0;
+      if ((order as any).orderDiscountSnapshot) {
+        try {
+          const discountData = JSON.parse((order as any).orderDiscountSnapshot as string);
+          if (discountData.appliedAmount) {
+            discountAmount = parseFloat(discountData.appliedAmount);
+          }
+        } catch {}
+      }
+
+      const tipAmount = toNumber((order as any).tipAmount);
       const paymentMethods = Array.from(new Set(order.payments?.map((p) => p.method) ?? []));
       const paymentLabel = paymentMethods.length > 0 ? paymentMethods.join(', ') : undefined;
 
@@ -117,7 +134,7 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
           type: 'order',
           occurredAt: order.closedAt.toISOString(),
           title: `Order #${order.id} closed`,
-          description: paymentLabel ? `Handled via ${paymentLabel}` : 'Handled',
+          description: `${paymentLabel ? `Handled via ${paymentLabel}` : 'Handled'}${discountAmount > 0 ? ` • Discount €${discountAmount.toFixed(2)}` : ''}${tipAmount > 0 ? ` • Tip €${tipAmount.toFixed(2)}` : ''}`,
           actorName: order.employee?.name,
         });
       }
@@ -125,12 +142,13 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
 
     payments.forEach((payment) => {
       const amount = toNumber(payment.amount).toFixed(2);
+      const tipPortion = toNumber((payment as any).tipPortion);
       events.push({
         id: `payment-${payment.id}`,
         type: 'payment',
         occurredAt: payment.createdAt.toISOString(),
         title: `Payment €${amount}`,
-        description: `Order #${payment.order?.id ?? 'N/A'} via ${payment.method}`,
+        description: `Order #${payment.order?.id ?? 'N/A'} via ${payment.method}${tipPortion > 0 ? ` • Tip €${tipPortion.toFixed(2)}` : ''}`,
         actorName: payment.order?.employee?.name,
       });
     });
@@ -146,6 +164,37 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
           : `Starts ${reservation.appointmentStart.toISOString()}`,
         actorName: reservation.employee?.name,
       });
+
+      if (reservation.status === 'Cancelled') {
+        events.push({
+          id: `reservation-cancelled-${reservation.id}`,
+          type: 'reservation',
+          occurredAt: reservation.updatedAt.toISOString(),
+          title: `Reservation cancelled (${reservation.customerName})`,
+          description: `Cancelled by ${reservation.employee?.name ?? 'unknown'}`,
+          actorName: reservation.employee?.name,
+        });
+      }
+      if (reservation.status === 'Expired') {
+        events.push({
+          id: `reservation-expired-${reservation.id}`,
+          type: 'reservation',
+          occurredAt: reservation.updatedAt.toISOString(),
+          title: `Reservation expired (${reservation.customerName})`,
+          description: undefined,
+          actorName: reservation.employee?.name,
+        });
+      }
+      if (reservation.status === 'Completed') {
+        events.push({
+          id: `reservation-completed-${reservation.id}`,
+          type: 'reservation',
+          occurredAt: reservation.updatedAt.toISOString(),
+          title: `Reservation completed (${reservation.customerName})`,
+          description: undefined,
+          actorName: reservation.employee?.name,
+        });
+      }
     });
 
     stockMovements.forEach((movement) => {
@@ -170,6 +219,28 @@ router.get('/', authenticate, async (req: AuthRequest, res, next) => {
         title: `Gift card ${giftCard.code} issued`,
         description: `Value €${value}${giftCard.expiresAt ? `, expires ${giftCard.expiresAt.toISOString()}` : ''}`,
       });
+    });
+
+    discounts.forEach((discount) => {
+      events.push({
+        id: `discount-${discount.id}`,
+        type: 'discount',
+        occurredAt: discount.createdAt.toISOString(),
+        title: `Discount ${discount.code} created`,
+        description: `${discount.type} ${discount.scope}${discount.status ? ` • Status ${discount.status}` : ''}`,
+        actorName: undefined,
+      });
+
+      if (discount.status && discount.status !== 'Active') {
+        events.push({
+          id: `discount-status-${discount.id}`,
+          type: 'discount',
+          occurredAt: discount.updatedAt.toISOString(),
+          title: `Discount ${discount.code} deactivated`,
+          description: `Status changed to ${discount.status}`,
+          actorName: undefined,
+        });
+      }
     });
 
     const filtered = events
