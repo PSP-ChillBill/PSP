@@ -1,17 +1,18 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Package, 
-  ShoppingCart, 
-  CreditCard, 
-  Calendar, 
-  Tag, 
-  Gift, 
+import {
+  LayoutDashboard,
+  Users,
+  Package,
+  ShoppingCart,
+  CreditCard,
+  Calendar,
+  Tag,
+  Gift,
   Archive,
   Clock3,
-  LogOut 
+  LogOut,
+  Percent
 } from 'lucide-react';
 
 export default function Layout() {
@@ -32,6 +33,7 @@ export default function Layout() {
     { name: 'Reservations', href: '/reservations', icon: Calendar },
     { name: 'Discounts', href: '/discounts', icon: Tag, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SuperAdmin', 'Owner', 'Manager'] },
+    { name: 'Taxes', href: '/taxes', icon: Percent, roles: ['SuperAdmin', 'Owner'] },
     { name: 'Inventory', href: '/inventory', icon: Archive, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Activity Log', href: '/activity', icon: Clock3, roles: ['Owner'] },
   ];
@@ -49,7 +51,7 @@ export default function Layout() {
             <h1 className="text-2xl font-bold text-primary-600">POS System</h1>
             <p className="text-sm text-gray-600 mt-1">{user?.business?.name || 'Admin'}</p>
           </div>
-          
+
           <nav className="p-4 space-y-2">
             {filteredNav.map((item) => (
               <Link

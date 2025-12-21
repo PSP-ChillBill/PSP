@@ -4,14 +4,41 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, X } from 'lucide-react';
 
+type CatalogItemType = {
+  id: number;
+  name: string;
+  code: string;
+  type: 'Product' | 'Service';
+  basePrice: number;
+  description?: string;
+  category?: { id: number; name: string } | null;
+  defaultDurationMin?: number | null;
+  taxClass?: string | null;
+};
+
+type TaxRule = {
+  id: number;
+  countryCode: string;
+  taxClass: string;
+  ratePercent: number;
+  validFrom: string | null;
+  validTo: string | null;
+  isActive: boolean;
+};
+
 export default function CatalogPage() {
   const { user } = useAuthStore();
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<CatalogItemType[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'Product' | 'Service'>('all');
   const [showModal, setShowModal] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
-  
+
+  // Taxes
+  const [taxRules, setTaxRules] = useState<TaxRule[]>([]);
+  const [taxClasses, setTaxClasses] = useState<string[]>([]);
+  const [loadingTaxes, setLoadingTaxes] = useState(false);
+
   // Form state
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
@@ -19,14 +46,47 @@ export default function CatalogPage() {
   const [formBasePrice, setFormBasePrice] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formCategoryId, setFormCategoryId] = useState<number | null>(null);
-  const [formTaxClass, setFormTaxClass] = useState('Food');
+  const [formTaxClass, setFormTaxClass] = useState('');
   const [formDurationMin, setFormDurationMin] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    loadTaxes();
     loadItems();
     loadCategories();
-  }, [filter]);
+  }, [filter, user?.business?.countryCode]);
+
+  const loadTaxes = async () => {
+    try {
+      setLoadingTaxes(true);
+      const params: any = { active: 'true' };
+      if (user?.business?.countryCode) params.countryCode = user.business.countryCode;
+
+      const res = await api.get('/taxes', { params });
+      const rules: TaxRule[] = res.data || [];
+      const seen = new Set<string>();
+      const classes: string[] = [];
+      const latestRules: TaxRule[] = [];
+
+      for (const r of rules) {
+        if (!seen.has(r.taxClass)) {
+          seen.add(r.taxClass);
+          classes.push(r.taxClass);
+          latestRules.push(r);
+        }
+      }
+
+      setTaxRules(rules);
+      setTaxClasses(classes);
+
+      if (!formTaxClass && classes.length > 0) setFormTaxClass(classes[0]);
+    } catch (err) {
+      console.error('Failed to load taxes', err);
+      toast.error('Failed to load tax rules');
+    } finally {
+      setLoadingTaxes(false);
+    }
+  };
 
   const loadCategories = async () => {
     try {
@@ -61,7 +121,7 @@ export default function CatalogPage() {
     setFormBasePrice('');
     setFormDescription('');
     setFormCategoryId(null);
-    setFormTaxClass('Food');
+    setFormTaxClass(taxClasses[0] || '');
     setFormDurationMin('');
     setShowModal(true);
   };
@@ -72,7 +132,12 @@ export default function CatalogPage() {
       toast.error('Business not configured');
       return;
     }
-    
+
+    if (!formTaxClass) {
+      toast.error('Please select a tax class');
+      return;
+    }
+
     try {
       setSubmitting(true);
       const payload: any = {
@@ -84,13 +149,13 @@ export default function CatalogPage() {
         taxClass: formTaxClass,
         status: 'Active',
       };
-      
+
       if (formDescription) payload.description = formDescription;
       if (formCategoryId) payload.categoryId = formCategoryId;
       if (formType === 'Service' && formDurationMin) {
         payload.defaultDurationMin = parseInt(formDurationMin);
       }
-      
+
       await api.post('/catalog/items', payload);
       toast.success(`{formType} EUR created successfully`);
       setShowModal(false);
@@ -103,12 +168,18 @@ export default function CatalogPage() {
     }
   };
 
+  const getLatestRateForClass = (taxClass?: string) => {
+    if (!taxClass) return null;
+    const r = taxRules.find((tr) => tr.taxClass === taxClass);
+    return r ? r.ratePercent : null;
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Catalog</h1>
         {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
-          <button 
+          <button
             onClick={handleCreate}
             className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
           >
@@ -121,31 +192,28 @@ export default function CatalogPage() {
       <div className="mb-4 flex space-x-2">
         <button
           onClick={() => setFilter('all')}
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'all'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
+          className={`px-4 py-2 rounded-lg ${filter === 'all'
+            ? 'bg-primary-600 text-white'
+            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
         >
           All
         </button>
         <button
           onClick={() => setFilter('Product')}
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'Product'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
+          className={`px-4 py-2 rounded-lg ${filter === 'Product'
+            ? 'bg-primary-600 text-white'
+            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
         >
           Products
         </button>
         <button
           onClick={() => setFilter('Service')}
-          className={`px-4 py-2 rounded-lg ${
-            filter === 'Service'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-          }`}
+          className={`px-4 py-2 rounded-lg ${filter === 'Service'
+            ? 'bg-primary-600 text-white'
+            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
         >
           Services
         </button>
@@ -157,35 +225,46 @@ export default function CatalogPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {items.map((item) => (
-            <div key={item.id} className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
-                  <p className="text-sm text-gray-500">{item.code}</p>
-                </div>
-                <span
-                  className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                    item.type === 'Service'
+          {items.map((item) => {
+            const rate = getLatestRateForClass(item.taxClass || undefined);
+            return (
+              <div key={item.id} className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{item.name}</h3>
+                    <p className="text-sm text-gray-500">{item.code}</p>
+                  </div>
+                  <span
+                    className={`px-2 py-1 text-xs font-semibold rounded-full ${item.type === 'Service'
                       ? 'bg-purple-100 text-purple-800'
                       : 'bg-blue-100 text-blue-800'
-                  }`}
-                >
-                  {item.type}
-                </span>
+                      }`}
+                  >
+                    {item.type}
+                  </span>
+                </div>
+                {item.description && (
+                  <p className="text-sm text-gray-600 mb-3">{item.description}</p>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-lg font-bold text-gray-900">€{item.basePrice}</span>
+                  <span className="text-sm text-gray-500">
+                    {item.taxClass ? (
+                      <>
+                        {item.taxClass}
+                        {rate !== null ? ` — ${rate}%` : ''}
+                      </>
+                    ) : (
+                      '-'
+                    )}
+                  </span>
+                </div>
+                {item.defaultDurationMin && (
+                  <p className="text-sm text-gray-500 mt-2">{item.defaultDurationMin} min</p>
+                )}
               </div>
-              {item.description && (
-                <p className="text-sm text-gray-600 mb-3">{item.description}</p>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="text-lg font-bold text-gray-900">€{item.basePrice}</span>
-                <span className="text-sm text-gray-500">{item.taxClass}</span>
-              </div>
-              {item.defaultDurationMin && (
-                <p className="text-sm text-gray-500 mt-2">{item.defaultDurationMin} min</p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -275,10 +354,19 @@ export default function CatalogPage() {
                       onChange={(e) => setFormTaxClass(e.target.value)}
                       className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
                     >
-                      <option value="Food">Food</option>
-                      <option value="Service">Service</option>
-                      <option value="Alcohol">Alcohol</option>
-                      <option value="Other">Other/Retail</option>
+                      <option value="">Select tax class</option>
+                      {loadingTaxes ? (
+                        <option value="" disabled>Loading...</option>
+                      ) : (
+                        taxClasses.map((tc) => {
+                          const rate = getLatestRateForClass(tc);
+                          return (
+                            <option key={tc} value={tc}>
+                              {tc}{rate !== null ? ` — ${rate}%` : ''}
+                            </option>
+                          );
+                        })
+                      )}
                     </select>
                   </div>
                 </div>
