@@ -45,16 +45,36 @@ router.post(
         throw ForbiddenError('Cannot manage inventory for another business');
       }
 
-      const stockItem = await prisma.stockItem.create({
-        data: {
-          catalogItemId,
-          unit,
-          qtyOnHand: new Decimal(qtyOnHand),
-          averageUnitCost: new Decimal(averageUnitCost),
-        },
+      const qtyDecimal = new Decimal(qtyOnHand);
+      const costDecimal = new Decimal(averageUnitCost);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const stockItem = await tx.stockItem.create({
+          data: {
+            catalogItemId,
+            unit,
+            qtyOnHand: qtyDecimal,
+            averageUnitCost: costDecimal,
+          },
+        });
+
+        // Create initial movement log if quantity is not zero to have audit trail
+        if (!qtyDecimal.isZero()) {
+          await tx.stockMovement.create({
+            data: {
+              stockItemId: stockItem.id,
+              type: 'Adjust',
+              delta: qtyDecimal,
+              unitCostSnapshot: costDecimal,
+              notes: 'Initial Inventory Setup',
+            },
+          });
+        }
+
+        return stockItem;
       });
 
-      res.status(201).json(stockItem);
+      res.status(201).json(result);
     } catch (error) {
       next(error);
     }
@@ -216,19 +236,31 @@ router.get(
   async (req: AuthRequest, res, next) => {
     try {
       const stockItemId = req.query.stockItemId ? parseInt(req.query.stockItemId as string) : undefined;
-      const businessId = req.user!.role === 'SuperAdmin'
-        ? parseInt(req.query.businessId as string)
-        : req.user!.businessId!;
+      
+      let businessId: number | undefined;
+      if (req.user!.role === 'SuperAdmin') {
+        if (req.query.businessId) {
+          const parsed = parseInt(req.query.businessId as string);
+          if (!isNaN(parsed)) businessId = parsed;
+        }
+      } else {
+        businessId = req.user!.businessId!;
+      }
 
-      const where: any = {
-        stockItem: {
+      const where: any = {};
+
+      // Only apply business filter if we have a valid businessId.
+      // This allows SuperAdmins to query specific items without passing businessId.
+      if (businessId) {
+        where.stockItem = {
           catalogItem: {
             businessId,
           },
-        },
-      };
+        };
+      }
 
       if (stockItemId) {
+        if (isNaN(stockItemId)) throw ValidationError(['Invalid stockItemId']);
         where.stockItemId = stockItemId;
       }
 
