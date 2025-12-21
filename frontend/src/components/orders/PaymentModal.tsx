@@ -31,7 +31,7 @@ export default function PaymentModal({ order, onClose, onSuccess }: { order: any
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvc, setCardCvc] = useState('');
 
-  const baseOrderTotal = calculateOrderTotal(currentOrder);
+  const { subtotal: baseSubtotal, tax: baseTaxAmount, total: baseOrderTotal } = calculateOrderTotal(currentOrder);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
   
   // Totals with discount
@@ -597,27 +597,24 @@ export default function PaymentModal({ order, onClose, onSuccess }: { order: any
           <div className="w-full md:w-80 bg-gray-50 border-l border-gray-200 p-6 overflow-y-auto">
              <div className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 mb-6 space-y-3">
                 <h3 className="font-semibold text-gray-900 border-b pb-2 mb-2">Order #{currentOrder.id}</h3>
-                {discountAmount > 0 ? (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Subtotal</span>
-                      <span className="font-medium">€{(baseOrderTotal + discountAmount).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Discount</span>
-                      <span>- €{discountAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-medium pt-1 border-t">
-                      <span className="text-gray-600">Order Total</span>
-                      <span>€{netOrderTotal.toFixed(2)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Total</span>
-                    <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span className="font-medium">€{baseSubtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Taxes</span>
+                  <span className="font-medium">€{baseTaxAmount.toFixed(2)}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-green-600">
+                    <span>Discount</span>
+                    <span>- €{discountAmount.toFixed(2)}</span>
                   </div>
                 )}
+                <div className="flex justify-between text-sm font-medium pt-1 border-t">
+                  <span className="text-gray-900">Total</span>
+                  <span>€{netOrderTotal.toFixed(2)}</span>
+                </div>
                 {tipAmount > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Tip</span>

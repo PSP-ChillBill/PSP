@@ -182,7 +182,7 @@ export default function OrdersPage() {
                 <div className="pt-4 border-t">
                   <div className="flex items-center justify-between text-lg font-semibold">
                     <span>Total</span>
-                    <span>€{calculateOrderTotal(order).toFixed(2)}</span>
+                    <span>€{calculateOrderTotal(order).total.toFixed(2)}</span>
                   </div>
                   {order.payments && order.payments.length > 0 && order.status === 'Open' && (
                      <div className="flex items-center justify-between text-sm text-green-600 mt-1">
