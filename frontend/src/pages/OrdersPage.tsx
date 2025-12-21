@@ -563,6 +563,10 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [amountToPay, setAmountToPay] = useState('');
   const [currentOrder, setCurrentOrder] = useState(order);
+  const [tipInput, setTipInput] = useState<string>(
+    (order?.tipAmount ? parseFloat(order.tipAmount).toFixed(2) : '')
+  );
+  const [applyingTip, setApplyingTip] = useState(false);
   
   // Card fields
   const [cardNumber, setCardNumber] = useState('');
@@ -572,13 +576,14 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
   const baseOrderTotal = calculateOrderTotal(currentOrder);
   const exchangeRate = exchangeRates[selectedCurrency] || 1.0;
   
-  // Use order total (backend already applied discount if any)
-  const orderTotal = baseOrderTotal;
+  // Totals with discount
   const discountAmount = currentOrder.discountAmount || 0;
+  const netOrderTotal = Math.max(0, baseOrderTotal - discountAmount);
   const appliedDiscount = currentOrder.discount || null;
+  const tipAmount = currentOrder.tipAmount ? parseFloat(currentOrder.tipAmount) : 0;
   
   const totalPaidBase = existingPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-  const remainingBase = Math.max(0, orderTotal - totalPaidBase);
+  const remainingBase = Math.max(0, netOrderTotal + tipAmount - totalPaidBase);
   const remainingInCurrency = parseFloat((remainingBase * exchangeRate).toFixed(2));
   
   const currencySymbol = CURRENCY_SYMBOLS[selectedCurrency] || selectedCurrency;
@@ -588,12 +593,10 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     loadExistingPayments();
   }, []);
 
-  // Update amount input when currency or existing payments change
+  // Keep amount to pay in sync when payments, currency, discount, or tip change
   useEffect(() => {
-    if (existingPayments.length >= 0) {
-      setAmountToPay(remainingInCurrency.toFixed(2));
-    }
-  }, [existingPayments, selectedCurrency, exchangeRates]);
+    setAmountToPay(remainingInCurrency.toFixed(2));
+  }, [existingPayments, selectedCurrency, exchangeRates, discountAmount, tipAmount, baseOrderTotal]);
 
   useEffect(() => {
     // Reset discount UI when modal closes
@@ -707,6 +710,24 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     }
   };
 
+  const applyTip = async () => {
+    const val = parseFloat(tipInput || '0');
+    if (isNaN(val) || val < 0) {
+      toast.error('Invalid tip amount');
+      return;
+    }
+    try {
+      setApplyingTip(true);
+      const res = await api.put(`/orders/${currentOrder.id}/tip`, { amount: val });
+      setCurrentOrder(res.data);
+      toast.success('Tip updated');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update tip');
+    } finally {
+      setApplyingTip(false);
+    }
+  };
+
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -736,7 +757,7 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
     setExistingPayments(updatedPayments);
 
     const paid = updatedPayments.reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0);
-    const total = orderTotal; // Use discounted total if discount is applied
+    const total = netOrderTotal + tipAmount;
     
     // If fully paid, close
     if (paid >= total - 0.01) {
@@ -845,6 +866,60 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
           {/* Main Content - Left */}
           <div className="flex-1 p-6 overflow-y-auto">
               <div className="space-y-6">
+                  {/* Tip Section */}
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-gray-700">Tip</h3>
+                    </div>
+                    <div className="flex space-x-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={tipInput}
+                        onChange={(e) => setTipInput(e.target.value)}
+                        placeholder="e.g., 5.00"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={applyTip}
+                        disabled={applyingTip}
+                        className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:opacity-50"
+                      >
+                        {applyingTip ? 'Applying...' : 'Apply Tip'}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {[5, 10, 12.5, 15, 20].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            const calc = (netOrderTotal * pct) / 100;
+                            const amount = parseFloat(calc.toFixed(2));
+                            setTipInput(amount.toFixed(2));
+                            (async () => {
+                              try {
+                                setApplyingTip(true);
+                                const res = await api.put(`/orders/${currentOrder.id}/tip`, { amount });
+                                setCurrentOrder(res.data);
+                                toast.success(`Tip set to ${pct}%`);
+                              } catch (error: any) {
+                                toast.error(error?.response?.data?.message || 'Failed to update tip');
+                              } finally {
+                                setApplyingTip(false);
+                              }
+                            })();
+                          }}
+                          className="px-2 py-1 text-xs rounded border border-gray-300 hover:bg-gray-100"
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Tip is added to the order total and paid along with the bill.</p>
+                  </div>
                   {/* Discount Section */}
                   <div className="bg-gray-50 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-2">
@@ -1083,13 +1158,19 @@ function PaymentModal({ order, onClose, onSuccess }: { order: any; onClose: () =
                     </div>
                     <div className="flex justify-between text-sm font-medium pt-1 border-t">
                       <span className="text-gray-600">Order Total</span>
-                      <span>€{orderTotal.toFixed(2)}</span>
+                      <span>€{netOrderTotal.toFixed(2)}</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Total</span>
                     <span className="font-medium">€{baseOrderTotal.toFixed(2)}</span>
+                  </div>
+                )}
+                {tipAmount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Tip</span>
+                    <span className="font-medium">€{tipAmount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm text-green-600">

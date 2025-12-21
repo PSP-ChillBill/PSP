@@ -79,7 +79,7 @@ router.post(
 router.get(
   '/',
   authenticate,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const businessId = req.user!.role === 'SuperAdmin'
         ? parseInt(req.query.businessId as string)
@@ -144,7 +144,7 @@ router.get(
   authenticate,
   param('id').isInt(),
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
 
@@ -254,7 +254,21 @@ router.get(
         };
       });
 
-      const totalAmount = lines.reduce((sum, line) => sum + line.total, 0);
+      const totalAmountWithoutTip = lines.reduce((sum, line) => sum + line.total, 0);
+      // Apply discount snapshot if present
+      let discountAmount = 0;
+      if (order.discountId && order.orderDiscountSnapshot) {
+        try {
+          const discountData = JSON.parse(order.orderDiscountSnapshot as string);
+          if (discountData.appliedAmount) {
+            discountAmount = parseFloat(discountData.appliedAmount);
+          }
+        } catch (e) {
+          // ignore parse errors
+        }
+      }
+      const tipAmount = parseFloat(order.tipAmount.toString());
+      const totalAmount = Math.max(0, totalAmountWithoutTip - discountAmount) + tipAmount;
       const totalPaid = order.payments.reduce((sum, p) => sum + p.amount.toNumber(), 0);
       const change = Math.max(0, totalPaid - totalAmount);
 
@@ -311,6 +325,18 @@ router.get(
               <span>TOTAL</span>
               <span>${totalAmount.toFixed(2)}</span>
             </div>
+            ${discountAmount > 0 ? `
+              <div class="row">
+                <span>Discount</span>
+                <span>-${discountAmount.toFixed(2)}</span>
+              </div>
+            ` : ''}
+            ${tipAmount > 0 ? `
+              <div class="row">
+                <span>Tip</span>
+                <span>${tipAmount.toFixed(2)}</span>
+              </div>
+            ` : ''}
             ${order.payments.length > 0 ? `
               <div class="line" style="margin: 4px 0; border-bottom-style: dotted;"></div>
               ${order.payments.map(p => `
@@ -709,6 +735,73 @@ router.delete(
   }
 );
 
+// Set or update tip amount for an order (before payments)
+router.put(
+  '/:id/tip',
+  authenticate,
+  [
+    param('id').isInt(),
+    body('amount').isDecimal(),
+  ],
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const { amount } = req.body;
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+      });
+
+      if (!order) {
+        throw NotFoundError('Order', orderId);
+      }
+
+      if (order.status !== 'Open') {
+        throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed order');
+      }
+
+      // Authorization: same business unless SuperAdmin
+      // Note: authenticate middleware populates req.user
+      // @ts-ignore
+      const user = (req as AuthRequest).user!;
+      if (user.role !== 'SuperAdmin' && user.businessId !== order.businessId) {
+        throw ForbiddenError('Access denied');
+      }
+
+      const updated = await prisma.order.update({
+        where: { id: orderId },
+        data: { tipAmount: new Decimal(amount) },
+        include: {
+          employee: { select: { id: true, name: true } },
+          orderLines: {
+            include: {
+              option: { include: { catalogItem: true } },
+            },
+          },
+          payments: true,
+          discount: true,
+        },
+      });
+
+      // Add discountAmount to response for frontend consistency
+      let discountAmount = 0;
+      if (updated.discountId && updated.orderDiscountSnapshot) {
+        try {
+          const discountData = JSON.parse(updated.orderDiscountSnapshot as string);
+          if (discountData.appliedAmount) {
+            discountAmount = parseFloat(discountData.appliedAmount);
+          }
+        } catch {}
+      }
+
+      res.json({ ...updated, discountAmount });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // Close order
 router.post(
   '/:id/close',
@@ -757,12 +850,16 @@ router.post(
         }
       }
 
+      // Add tip amount
+      const tipAmount = new Decimal(order.tipAmount);
+      const grandTotal = orderLinesTotal.plus(tipAmount);
+
       const paymentsTotal = order.payments.reduce((sum, payment) => {
         return sum.plus(new Decimal(payment.amount));
       }, new Decimal(0));
 
       // Use precision safe comparison
-      if (paymentsTotal.lessThan(orderLinesTotal)) {
+      if (paymentsTotal.lessThan(grandTotal)) {
         throw new ApiError(400, 'INSUFFICIENT_PAYMENT', 'Payment amount is less than order total');
       }
 
