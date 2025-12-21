@@ -5,11 +5,11 @@ import { X } from 'lucide-react';
 import { calculateOrderTotal } from '../../lib/order';
 
 export default function RefundModal({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
-  const [amount, setAmount] = useState(calculateOrderTotal(order).toFixed(2));
+  const [amount, setAmount] = useState(calculateOrderTotal(order).total.toFixed(2));
   const [reason, setReason] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  const maxAmount = calculateOrderTotal(order);
+  const maxAmount = calculateOrderTotal(order).total;
 
   const handleRefund = async (e: React.FormEvent) => {
     e.preventDefault();
