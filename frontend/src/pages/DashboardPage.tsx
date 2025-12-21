@@ -22,6 +22,7 @@ export default function DashboardPage() {
   const { user } = useAuthStore();
   const [stats, setStats] = useState({
     todaySales: 0,
+    todayTips: 0,
     openOrders: 0,
     todayReservations: 0,
     activeEmployees: 0,
@@ -40,15 +41,43 @@ export default function DashboardPage() {
       setStatsLoading(true);
       const today = new Date().toISOString().split('T')[0];
       
-      const [orders, reservations, employees] = await Promise.all([
+      const [openOrdersRes, closedOrdersRes, reservations, employees] = await Promise.all([
         api.get('/orders', { params: { status: 'Open' } }),
+        api.get('/orders', { params: { status: 'Closed' } }),
         api.get('/reservations', { params: { status: 'Booked', startDate: today } }),
         api.get('/employees', { params: { businessId: user?.businessId } }),
       ]);
 
+      const closedToday = (closedOrdersRes.data || []).filter((o: any) => {
+        const d = o.closedAt ? new Date(o.closedAt) : null;
+        if (!d) return false;
+        const iso = d.toISOString().split('T')[0];
+        return iso === today;
+      });
+
+      const calcOrderLinesTotal = (order: any): number => {
+        if (!order.orderLines) return 0;
+        return order.orderLines.reduce((sum: number, line: any) => {
+          const lineTotal = parseFloat(line.unitPriceSnapshot) * parseFloat(line.qty);
+          const tax = lineTotal * (parseFloat(line.taxRateSnapshotPct) / 100);
+          return sum + lineTotal + tax;
+        }, 0);
+      };
+
+      let todaySales = 0;
+      let todayTips = 0;
+      closedToday.forEach((o: any) => {
+        const base = calcOrderLinesTotal(o);
+        const discountAmount = o.discountAmount || 0;
+        const tipAmount = o.tipAmount ? parseFloat(o.tipAmount) : 0;
+        todaySales += Math.max(0, base - discountAmount) + tipAmount;
+        todayTips += tipAmount;
+      });
+
       setStats({
-        todaySales: 0,
-        openOrders: orders.data.length,
+        todaySales,
+        todayTips,
+        openOrders: openOrdersRes.data.length,
         todayReservations: reservations.data.length,
         activeEmployees: employees.data.filter((e: any) => e.status === 'Active').length,
       });
@@ -87,6 +116,7 @@ export default function DashboardPage() {
       value: `€${stats.todaySales.toFixed(2)}`,
       icon: DollarSign,
       color: 'bg-green-500',
+      extra: `Tips: €${stats.todayTips.toFixed(2)}`,
     },
     {
       name: 'Open Orders',
@@ -144,6 +174,9 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-gray-600">{stat.name}</p>
                     <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+                    {stat.name === "Today's Sales" && (
+                      <p className="text-xs text-gray-500 mt-1">{(stat as any).extra}</p>
+                    )}
                   </div>
                   <div className={`${stat.color} p-3 rounded-lg`}>
                     <stat.icon className="w-6 h-6 text-white" />
@@ -217,6 +250,30 @@ export default function DashboardPage() {
                   className="block px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition"
                 >
                   New Reservation
+                </a>
+                <a
+                  href="/catalog"
+                  className="block px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition"
+                >
+                  Manage Catalog
+                </a>
+                <a
+                  href="/discounts"
+                  className="block px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition"
+                >
+                  Manage Discounts
+                </a>
+                <a
+                  href="/giftcards"
+                  className="block px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition"
+                >
+                  Issue Gift Card
+                </a>
+                <a
+                  href="/payments"
+                  className="block px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition"
+                >
+                  View Payment History
                 </a>
               </div>
             </div>
