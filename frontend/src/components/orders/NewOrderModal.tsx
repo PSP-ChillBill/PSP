@@ -7,6 +7,8 @@ import { X, Plus, Minus, Trash2 } from 'lucide-react';
 export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const { user } = useAuthStore();
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [tables, setTables] = useState<any[]>([]);
+  const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<{ itemId: number; name: string; price: number; qty: number }[]>([]);
   const [creating, setCreating] = useState(false);
@@ -14,7 +16,17 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
 
   useEffect(() => {
     loadCatalog();
+    loadTables();
   }, []);
+
+  const loadTables = async () => {
+    try {
+      const res = await api.get('/seats', { params: { businessId: user?.businessId } });
+      setTables(res.data);
+    } catch {
+      // non-critical
+    }
+  };
 
   const loadCatalog = async () => {
     try {
@@ -27,7 +39,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
       setCatalogItems(items);
       
       // Fetch tax rates for each unique tax class
-      const taxClasses = [...new Set(items.map((item: any) => item.taxClass))];
+      const taxClasses = [...new Set(items.map((item: any) => item.taxClass))] as string[];
       const rates: { [key: string]: number } = {};
       
       for (const taxClass of taxClasses) {
@@ -38,9 +50,9 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
               taxClass 
             },
           });
-          rates[taxClass] = parseFloat(taxRes.data.ratePercent);
+          rates[taxClass as string] = parseFloat(taxRes.data.ratePercent);
         } catch {
-          rates[taxClass] = 0;
+          rates[taxClass as string] = 0;
         }
       }
       
@@ -98,8 +110,10 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
 
     try {
       setCreating(true);
+      const tableName = tables.find(t => t.id === selectedTable)?.name;
       const orderRes = await api.post('/orders', {
         businessId: user?.businessId,
+        tableOrArea: tableName || undefined,
       });
       const orderId = orderRes.data.id;
 
@@ -144,6 +158,21 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Select Table (Optional)</label>
+            <select
+              className="w-full max-w-sm px-3 py-2 border rounded"
+              value={selectedTable ?? ''}
+              onChange={(e) => setSelectedTable(e.target.value ? parseInt(e.target.value, 10) : null)}
+            >
+              <option value="">No Table</option>
+              {tables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} (Cap: {t.capacity})
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <h3 className="font-medium text-gray-900 mb-3">Catalog Items</h3>

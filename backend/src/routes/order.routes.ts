@@ -808,7 +808,7 @@ router.post(
   authenticate,
   param('id').isInt(),
   validateRequest,
-  async (req: AuthRequest, res: next, next: NextFunction) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const orderId = parseInt(req.params.id);
 
@@ -955,6 +955,57 @@ router.post(
       });
 
       res.json(cancelledOrder);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Update order (e.g., table assignment)
+router.put(
+  '/:id',
+  authenticate,
+  [
+    param('id').isInt(),
+    body('tableOrArea').optional({ nullable: true }).isString(),
+  ],
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const { tableOrArea } = req.body;
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+      });
+
+      if (!order) {
+        throw NotFoundError('Order', orderId);
+      }
+
+      // Authorization check
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== order.businessId) {
+        throw ForbiddenError('Cannot update order for another business');
+      }
+
+      const updatedOrder = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          tableOrArea: tableOrArea || null,
+        },
+        include: {
+          employee: { select: { id: true, name: true } },
+          orderLines: {
+            include: {
+              option: { include: { catalogItem: true } },
+            },
+          },
+          payments: true,
+          discount: true,
+        },
+      });
+
+      res.json(updatedOrder);
     } catch (error) {
       next(error);
     }

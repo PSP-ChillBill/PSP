@@ -19,18 +19,22 @@ const validateRequest = (req: AuthRequest, res: Response, next: NextFunction) =>
 router.get(
   '/',
   authenticate,
-  [query('businessId').isInt()],
+  [query('businessId').isInt(), query('includeInactive').optional().isBoolean()],
   validateRequest,
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const businessId = parseInt(req.query.businessId as string);
+      const includeInactive = (req.query.includeInactive as string) === 'true';
 
       if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== businessId) {
         throw ForbiddenError('Access denied');
       }
 
+      const where: any = { businessId };
+      if (!includeInactive) where.status = 'Active';
+
       const seats = await prisma.seat.findMany({
-        where: { businessId, status: 'Active' },
+        where,
         orderBy: [{ name: 'asc' }],
       });
       res.json(seats);
@@ -85,6 +89,29 @@ router.post(
         throw ForbiddenError('Access denied');
       }
       const updated = await prisma.seat.update({ where: { id }, data: { status: 'Inactive' } });
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Activate a seat
+router.post(
+  '/:id/activate',
+  authenticate,
+  authorize('Manager', 'Owner', 'SuperAdmin'),
+  [param('id').isInt()],
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = parseInt(req.params.id);
+      const seat = await prisma.seat.findUnique({ where: { id } });
+      if (!seat) throw NotFoundError('Seat', id);
+      if (req.user!.role !== 'SuperAdmin' && req.user!.businessId !== seat.businessId) {
+        throw ForbiddenError('Access denied');
+      }
+      const updated = await prisma.seat.update({ where: { id }, data: { status: 'Active' } });
       res.json(updated);
     } catch (err) {
       next(err);
