@@ -404,11 +404,36 @@ router.post(
       // Get option and catalog item
       const option = await prisma.option.findUnique({
         where: { id: optionId },
-        include: { catalogItem: true },
+        include: { 
+          catalogItem: {
+            include: { stockItem: true }
+          }
+        },
       });
 
       if (!option) {
         throw NotFoundError('Option', optionId);
+      }
+
+      if (option.catalogItem.stockItem) {
+        const stockItem = option.catalogItem.stockItem;
+        
+        // Sum quantity of this item in all OPEN orders
+        const reservedAgg = await prisma.orderLine.aggregate({
+          _sum: { qty: true },
+          where: {
+            order: { status: 'Open' },
+            option: { catalogItemId: option.catalogItemId }
+          }
+        });
+        
+        const reservedQty = new Decimal(reservedAgg._sum.qty || 0);
+        const requestedQty = new Decimal(qty);
+        const availableQty = stockItem.qtyOnHand.minus(reservedQty);
+        
+        if (availableQty.lessThan(requestedQty)) {
+          throw new ApiError(409, 'INSUFFICIENT_STOCK', `Insufficient stock. Available: ${availableQty.toFixed(2)}, Requested: ${requestedQty.toFixed(2)}`);
+        }
       }
 
       // Get current tax rate
@@ -466,6 +491,44 @@ router.put(
 
       if (order.status !== 'Open') {
         throw new ApiError(403, 'ORDER_NOT_MODIFIABLE', 'Cannot modify closed or cancelled order');
+      }
+
+      const existingLine = await prisma.orderLine.findUnique({
+        where: { id: lineId },
+        include: {
+          option: {
+            include: {
+              catalogItem: {
+                include: { stockItem: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (!existingLine) {
+        throw NotFoundError('OrderLine', lineId);
+      }
+
+      if (existingLine.option?.catalogItem?.stockItem) {
+        const stockItem = existingLine.option.catalogItem.stockItem;
+        
+        const reservedAgg = await prisma.orderLine.aggregate({
+          _sum: { qty: true },
+          where: {
+            order: { status: 'Open' },
+            option: { catalogItemId: existingLine.option.catalogItemId },
+            id: { not: lineId }
+          }
+        });
+        
+        const reservedQty = new Decimal(reservedAgg._sum.qty || 0);
+        const requestedQty = new Decimal(qty);
+        const availableQty = stockItem.qtyOnHand.minus(reservedQty);
+        
+        if (availableQty.lessThan(requestedQty)) {
+          throw new ApiError(409, 'INSUFFICIENT_STOCK', `Insufficient stock. Available: ${availableQty.toFixed(2)}, Requested: ${requestedQty.toFixed(2)}`);
+        }
       }
 
       const orderLine = await prisma.orderLine.update({

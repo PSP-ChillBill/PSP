@@ -108,6 +108,8 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
       return;
     }
 
+    let createdOrderId: number | null = null;
+
     try {
       setCreating(true);
       const tableName = tables.find(t => t.id === selectedTable)?.name;
@@ -115,7 +117,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
         businessId: user?.businessId,
         tableOrArea: tableName || undefined,
       });
-      const orderId = orderRes.data.id;
+      createdOrderId = orderRes.data.id;
 
       // Add lines (need to get options first)
       for (const item of cart) {
@@ -131,7 +133,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
           optionId = optRes.data.id;
         }
 
-        await api.post(`/orders/${orderId}/lines`, {
+        await api.post(`/orders/${createdOrderId}/lines`, {
           optionId,
           qty: item.qty,
         });
@@ -141,6 +143,14 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
       onSuccess();
       onClose();
     } catch (error: any) {
+      // If order lines failed (e.g. insufficient stock), cancel the empty order to avoid "ghost" open orders
+      if (createdOrderId) {
+        try {
+          await api.post(`/orders/${createdOrderId}/cancel`);
+        } catch (cleanupErr) {
+          console.error('Failed to cleanup failed order', cleanupErr);
+        }
+      }
       toast.error(error?.response?.data?.message || 'Failed to create order');
     } finally {
       setCreating(false);
