@@ -63,13 +63,15 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Inventory</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowTrackModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Track Item</span>
-          </button>
+          {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
+            <button
+              onClick={() => setShowTrackModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Track Item</span>
+            </button>
+          )}
           <button 
             onClick={loadInventory}
             className="p-2 text-gray-600 hover:text-primary-600 rounded-lg hover:bg-gray-100 transition"
@@ -143,13 +145,15 @@ export default function InventoryPage() {
                         >
                           <History className="w-5 h-5" />
                         </button>
-                        <button
-                          onClick={() => openAdjust(item)}
-                          className="text-primary-600 hover:text-primary-900"
-                          title="Adjust Stock"
-                        >
-                          <ArrowRightLeft className="w-5 h-5" />
-                        </button>
+                        {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
+                          <button
+                            onClick={() => openAdjust(item)}
+                            className="text-primary-600 hover:text-primary-900"
+                            title="Adjust Stock"
+                          >
+                            <ArrowRightLeft className="w-5 h-5" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
