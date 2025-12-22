@@ -214,3 +214,60 @@ router.delete(
 );
 
 export default router;
+// Reassign business owner (Super Admin only)
+router.post(
+  '/:id/reassign-owner',
+  authenticate,
+  authorize('SuperAdmin'),
+  [
+    param('id').isInt().withMessage('Valid business id required'),
+    body('newOwnerId').isInt().withMessage('Valid newOwnerId required'),
+  ],
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const businessId = parseInt(req.params.id);
+      const { newOwnerId } = req.body as { newOwnerId: number };
+
+      // Ensure business exists
+      const business = await prisma.business.findUnique({ where: { id: businessId } });
+      if (!business) {
+        throw NotFoundError('Business', businessId);
+      }
+
+      // Ensure target employee exists and belongs to this business and is active
+      const targetEmployee = await prisma.employee.findUnique({ where: { id: newOwnerId } });
+      if (!targetEmployee || targetEmployee.businessId !== businessId || targetEmployee.status !== 'Active') {
+        throw new ApiError(400, 'INVALID_TARGET_OWNER', 'Selected employee must be Active and belong to the business');
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // Demote any current owners for this business to Manager
+        await tx.employee.updateMany({
+          where: { businessId, role: 'Owner', id: { not: newOwnerId } },
+          data: { role: 'Manager' },
+        });
+
+        // Promote selected employee to Owner
+        await tx.employee.update({
+          where: { id: newOwnerId },
+          data: { role: 'Owner' },
+        });
+      });
+
+      const updated = await prisma.business.findUnique({
+        where: { id: businessId },
+        include: {
+          employees: {
+            where: { status: 'Active' },
+            select: { id: true, name: true, email: true, role: true, status: true },
+          },
+        },
+      });
+
+      res.json({ message: 'Owner reassigned successfully', business: updated });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+);

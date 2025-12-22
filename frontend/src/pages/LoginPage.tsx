@@ -54,7 +54,7 @@ export default function LoginPage() {
 // Store auth data
       setAuth(token, user);
       toast.success(`Welcome, ${user.name}!`);
-      navigate(user?.businessId ? '/' : '/setup');
+      navigate(user?.businessId ? '/' : '/admin');
     } catch (error: any) {
       const message = error.response?.data?.message || error.message || 'Login failed';
       toast.error(message);

@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import LoginPage from './pages/LoginPage';
-import SetupPage from './pages/SetupPage';
+import AdminPage from './pages/AdminPage';
 import DashboardPage from './pages/DashboardPage';
 import EmployeesPage from './pages/EmployeesPage';
 import CatalogPage from './pages/CatalogPage';
@@ -19,7 +19,7 @@ import Layout from './components/Layout';
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { token, user } = useAuthStore();
   if (!token) return <Navigate to="/login" />;
-  if (!user?.businessId) return <Navigate to="/setup" />;
+  if (!user?.businessId) return <Navigate to="/admin" />;
   return <>{children}</>;
 }
 
@@ -27,7 +27,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/setup" element={<SetupPage />} />
+      <Route path="/admin" element={<AdminPage />} />
       <Route
         path="/"
         element={
