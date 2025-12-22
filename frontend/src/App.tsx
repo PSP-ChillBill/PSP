@@ -12,6 +12,7 @@ import DiscountsPage from './pages/DiscountsPage';
 import GiftCardsPage from './pages/GiftCardsPage';
 import InventoryPage from './pages/InventoryPage';
 import ActivityLogPage from './pages/ActivityLogPage';
+import TableManagementPage from './pages/TableManagementPage';
 import TaxManagementPage from './pages/TaxesPage';
 import Layout from './components/Layout';
 
@@ -41,6 +42,7 @@ function App() {
         <Route path="orders" element={<OrdersPage />} />
         <Route path="payments" element={<PaymentsPage />} />
         <Route path="reservations" element={<ReservationsPage />} />
+        <Route path="tables" element={<TableManagementPage />} />
         <Route path="discounts" element={<DiscountsPage />} />
         <Route path="gift-cards" element={<GiftCardsPage />} />
         <Route path="inventory" element={<InventoryPage />} />

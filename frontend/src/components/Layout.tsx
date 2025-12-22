@@ -12,7 +12,8 @@ import {
   Archive,
   Clock3,
   LogOut,
-  Percent
+  Percent,
+  LayoutGrid
 } from 'lucide-react';
 
 export default function Layout() {
@@ -31,6 +32,7 @@ export default function Layout() {
     { name: 'Orders', href: '/orders', icon: ShoppingCart },
     { name: 'Payments', href: '/payments', icon: CreditCard },
     { name: 'Reservations', href: '/reservations', icon: Calendar },
+    { name: 'Tables', href: '/tables', icon: LayoutGrid, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Discounts', href: '/discounts', icon: Tag, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Taxes', href: '/taxes', icon: Percent, roles: ['SuperAdmin', 'Owner'] },
@@ -46,13 +48,13 @@ export default function Layout() {
     <div className="min-h-screen bg-gray-100">
       <div className="flex">
         {/* Sidebar */}
-        <div className="w-64 bg-white shadow-lg h-screen fixed left-0 top-0">
-          <div className="p-4 border-b">
+        <div className="w-64 bg-white shadow-lg h-screen fixed left-0 top-0 flex flex-col">
+          <div className="p-4 border-b flex-shrink-0">
             <h1 className="text-2xl font-bold text-primary-600">POS System</h1>
             <p className="text-sm text-gray-600 mt-1">{user?.business?.name || 'Admin'}</p>
           </div>
 
-          <nav className="p-4 space-y-2">
+          <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
             {filteredNav.map((item) => (
               <Link
                 key={item.name}
@@ -65,7 +67,7 @@ export default function Layout() {
             ))}
           </nav>
 
-          <div className="absolute bottom-0 w-64 p-4 border-t bg-white">
+          <div className="p-4 border-t bg-white flex-shrink-0">
             <div className="mb-2">
               <p className="text-sm font-medium text-gray-900">{user?.name}</p>
               <p className="text-xs text-gray-500">{user?.role}</p>

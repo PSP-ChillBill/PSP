@@ -299,7 +299,7 @@ export default function ReservationsPage() {
             <div>
               <label className="block text-sm text-gray-600 mb-1">Duration (minutes)</label>
               <input
-                type="number"
+                            title="Delete table"
                 min={15}
                 step={15}
                 className="w-full px-3 py-2 border rounded"
@@ -326,9 +326,9 @@ export default function ReservationsPage() {
             </div>
 
             <div>
-              <label className="block text-sm text-gray-600 mb-2">Select Seats</label>
+              <label className="block text-sm text-gray-600 mb-2">Select Tables</label>
               {seats.length === 0 ? (
-                <div className="text-sm text-gray-500">No seats yet.</div>
+                <div className="text-sm text-gray-500">No tables yet.</div>
               ) : (
                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto pr-1">
                   {seats.map((s) => {
@@ -350,7 +350,7 @@ export default function ReservationsPage() {
                           <button
                             onClick={(e) => { e.preventDefault(); deleteSeat(s.id); }}
                             className="p-1 text-gray-500 hover:text-red-600"
-                            title="Delete seat"
+                            title="Delete table"
                           >
                             <Trash className="w-4 h-4" />
                           </button>
@@ -365,13 +365,13 @@ export default function ReservationsPage() {
             {isManager && (
               <div className="border-t pt-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700">Add Seat (manager)</span>
+                  <span className="text-sm font-medium text-gray-700">Add Table (manager)</span>
                 </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     className="flex-1 px-3 py-2 border rounded"
-                    placeholder="Seat name (e.g., T1)"
+                    placeholder="Table name (e.g., T1)"
                     value={newSeatName}
                     onChange={(e) => setNewSeatName(e.target.value)}
                   />

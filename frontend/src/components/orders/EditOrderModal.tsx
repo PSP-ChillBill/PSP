@@ -7,6 +7,8 @@ import { X, Plus, Minus, Trash2 } from 'lucide-react';
 export default function EditOrderModal({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
   const { user } = useAuthStore();
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
+  const [tables, setTables] = useState<any[]>([]);
+  const [selectedTable, setSelectedTable] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [orderLines, setOrderLines] = useState(order.orderLines || []);
   const [saving, setSaving] = useState(false);
@@ -14,7 +16,27 @@ export default function EditOrderModal({ order, onClose, onSuccess }: { order: a
 
   useEffect(() => {
     loadCatalog();
+    loadTables();
+    // Initialize selected table from order
+    if (order.tableOrArea) {
+      const matchingTable = tables.find((t: any) => t.name === order.tableOrArea);
+      if (matchingTable) setSelectedTable(matchingTable.id);
+    }
   }, []);
+
+  const loadTables = async () => {
+    try {
+      const res = await api.get('/seats', { params: { businessId: user?.businessId } });
+      setTables(res.data);
+      // Set initial table if order has one
+      if (order.tableOrArea) {
+        const matchingTable = res.data.find((t: any) => t.name === order.tableOrArea);
+        if (matchingTable) setSelectedTable(matchingTable.id);
+      }
+    } catch {
+      // non-critical
+    }
+  };
 
   const loadCatalog = async () => {
     try {
@@ -156,8 +178,21 @@ export default function EditOrderModal({ order, onClose, onSuccess }: { order: a
   const handleClose = async () => {
     setSaving(true);
     try {
+      // Update table if changed
+      const currentTableName = order.tableOrArea;
+      const newTableName = selectedTable ? tables.find(t => t.id === selectedTable)?.name : null;
+      
+      if (currentTableName !== newTableName) {
+        await api.put(`/orders/${order.id}`, {
+          tableOrArea: newTableName,
+        });
+        toast.success('Table updated');
+      }
+      
       onSuccess();
       onClose();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update order');
     } finally {
       setSaving(false);
     }
@@ -174,6 +209,21 @@ export default function EditOrderModal({ order, onClose, onSuccess }: { order: a
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Table</label>
+            <select
+              className="w-full max-w-sm px-3 py-2 border rounded"
+              value={selectedTable ?? ''}
+              onChange={(e) => setSelectedTable(e.target.value ? parseInt(e.target.value, 10) : null)}
+            >
+              <option value="">No Table</option>
+              {tables.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} (Cap: {t.capacity})
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <h3 className="font-medium text-gray-900 mb-3">Available Items</h3>
