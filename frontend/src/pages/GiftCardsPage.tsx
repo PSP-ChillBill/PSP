@@ -10,6 +10,7 @@ export default function GiftCardsPage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [editingCard, setEditingCard] = useState<any | null>(null);
 
   useEffect(() => {
     loadGiftCards();
@@ -35,12 +36,43 @@ export default function GiftCardsPage() {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
+  const handleToggleStatus = async (card: any) => {
+    if (!['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '')) {
+      toast.error('Not authorized');
+      return;
+    }
+
+    const confirmMsg =
+      card.status === 'Active'
+        ? `Are you sure you want to block gift card ${card.code}?`
+        : `Are you sure you want to activate gift card ${card.code}?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const newStatus = card.status === 'Active' ? 'Blocked' : 'Active';
+      await api.put(`/gift-cards/${card.id}/status`, { status: newStatus });
+      toast.success(`Gift card ${card.code} is now ${newStatus}`);
+      await loadGiftCards();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update status');
+    }
+  };
+
+  const handleEdit = (card: any) => {
+    setEditingCard({
+      ...card,
+      expiresAt: card.expiresAt ? new Date(card.expiresAt).toISOString().slice(0, 10) : '',
+      initialValue: parseFloat(card.initialValue).toFixed(2),
+    });
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-gray-900">Gift Cards</h1>
         {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
-          <button 
+          <button
             onClick={() => setShowModal(true)}
             className="flex items-center space-x-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
           >
@@ -77,12 +109,15 @@ export default function GiftCardsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {giftCards.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center">
+                  <td colSpan={7} className="px-6 py-12 text-center">
                     <GiftIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                     <p className="text-gray-500">No gift cards issued</p>
                   </td>
@@ -114,22 +149,43 @@ export default function GiftCardsPage() {
                       {new Date(card.issuedAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {card.expiresAt
-                        ? new Date(card.expiresAt).toLocaleDateString()
-                        : 'Never'}
+                      {card.expiresAt ? new Date(card.expiresAt).toLocaleDateString() : 'Never'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                          card.status === 'Active'
-                            ? 'bg-green-100 text-green-800'
-                            : card.status === 'Blocked'
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${card.status === 'Active'
+                          ? 'bg-green-100 text-green-800'
+                          : card.status === 'Blocked'
                             ? 'bg-red-100 text-red-800'
                             : 'bg-gray-100 text-gray-800'
-                        }`}
+                          }`}
                       >
                         {card.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') ? (
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleEdit(card)}
+                            className="px-3 py-1 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleStatus(card)}
+                            className={`px-3 py-1 rounded-md text-sm ${card.status === 'Active'
+                              ? 'bg-red-50 text-red-700 hover:bg-red-100'
+                              : 'bg-green-50 text-green-700 hover:bg-green-100'
+                              }`}
+                          >
+                            {card.status === 'Active' ? 'Block' : 'Unblock'}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-500">—</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -140,16 +196,30 @@ export default function GiftCardsPage() {
       )}
 
       {showModal && (
-        <IssueGiftCardModal
-          onClose={() => setShowModal(false)}
-          onSuccess={loadGiftCards}
+        <IssueGiftCardModal onClose={() => setShowModal(false)} onSuccess={loadGiftCards} />
+      )}
+
+      {editingCard && (
+        <EditGiftCardModal
+          card={editingCard}
+          onClose={() => setEditingCard(null)}
+          onSuccess={() => {
+            setEditingCard(null);
+            loadGiftCards();
+          }}
         />
       )}
     </div>
   );
 }
 
-function IssueGiftCardModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function IssueGiftCardModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const { user } = useAuthStore();
   const [value, setValue] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
@@ -282,6 +352,119 @@ function IssueGiftCardModal({ onClose, onSuccess }: { onClose: () => void; onSuc
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function EditGiftCardModal({
+  card,
+  onClose,
+  onSuccess,
+}: {
+  card: any;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { user } = useAuthStore();
+  const [value, setValue] = useState<string>(card.initialValue ? String(card.initialValue) : '');
+  const [expiresAt, setExpiresAt] = useState<string>(card.expiresAt || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+
+    if (!user?.businessId) {
+      toast.error('Business not configured');
+      return;
+    }
+
+    if (!value || parseFloat(value) <= 0) {
+      toast.error('Enter a valid amount');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const payload: any = {
+        initialValue: parseFloat(value),
+      };
+      if (expiresAt) payload.expiresAt = new Date(expiresAt).toISOString();
+      else payload.expiresAt = null;
+
+      await api.put(`/gift-cards/${card.id}`, payload);
+
+      toast.success('Gift card updated');
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update gift card');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white w-full max-w-md rounded-lg shadow-lg">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">Edit Gift Card</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSave} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
+            <div className="w-full rounded-md border border-gray-200 px-3 py-2 bg-gray-50 font-mono">
+              {card.code}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Amount (€) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+              placeholder="50.00"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Expiration Date</label>
+            <input
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Leave empty to set no expiration</p>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
