@@ -280,37 +280,39 @@ export default function TableManagementPage() {
           </table>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Table</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Name</label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border rounded"
-                placeholder="e.g., T1"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-              />
+        {['SuperAdmin', 'Owner', 'Manager'].includes(user?.role || '') && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Add Table</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Name</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="e.g., T1"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Capacity</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full px-3 py-2 border rounded"
+                  value={newCapacity}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value || '2', 10);
+                    setNewCapacity(!Number.isNaN(parsed) && parsed >= 1 ? parsed : 2);
+                  }}
+                />
+              </div>
+              <button onClick={addTable} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
+                <Plus className="w-5 h-5" /> Add Table
+              </button>
             </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Capacity</label>
-              <input
-                type="number"
-                min={1}
-                className="w-full px-3 py-2 border rounded"
-                value={newCapacity}
-                onChange={(e) => {
-                  const parsed = parseInt(e.target.value || '2', 10);
-                  setNewCapacity(!Number.isNaN(parsed) && parsed >= 1 ? parsed : 2);
-                }}
-              />
-            </div>
-            <button onClick={addTable} className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">
-              <Plus className="w-5 h-5" /> Add Table
-            </button>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

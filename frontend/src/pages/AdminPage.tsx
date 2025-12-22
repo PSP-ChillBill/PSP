@@ -19,7 +19,7 @@ interface Business {
   };
 }
 
-export default function SetupPage() {
+export default function AdminPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(true);
@@ -27,6 +27,11 @@ export default function SetupPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
+  const [ownerModalBusinessId, setOwnerModalBusinessId] = useState<number | null>(null);
+  const [ownerCandidates, setOwnerCandidates] = useState<Array<{ id: number; name: string; email: string; role: string }>>([]);
+  const [selectedOwnerId, setSelectedOwnerId] = useState<number | null>(null);
+  const [loadingOwnerCandidates, setLoadingOwnerCandidates] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -146,6 +151,48 @@ export default function SetupPage() {
     setShowEditModal(true);
   };
 
+  const openOwnerModal = async (business: Business) => {
+    try {
+      setShowOwnerModal(true);
+      setOwnerModalBusinessId(business.id);
+      setLoadingOwnerCandidates(true);
+      setOwnerCandidates([]);
+      setSelectedOwnerId(null);
+      const res = await api.get(`/businesses/${business.id}`);
+      const employees = (res.data?.employees || []) as Array<{ id: number; name: string; email: string; role: string }>;
+      setOwnerCandidates(employees);
+    } catch (error: any) {
+      toast.error('Failed to load employees for business');
+      setShowOwnerModal(false);
+      setOwnerModalBusinessId(null);
+    } finally {
+      setLoadingOwnerCandidates(false);
+    }
+  };
+
+  const handleReassignOwner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ownerModalBusinessId || !selectedOwnerId) {
+      toast.error('Please select a new owner');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      await api.post(`/businesses/${ownerModalBusinessId}/reassign-owner`, { newOwnerId: selectedOwnerId });
+      toast.success('Owner reassigned successfully');
+      setShowOwnerModal(false);
+      setOwnerModalBusinessId(null);
+      setOwnerCandidates([]);
+      setSelectedOwnerId(null);
+      loadBusinesses();
+    } catch (error: any) {
+      const message = error?.response?.data?.message || 'Failed to reassign owner';
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       name: '',
@@ -171,7 +218,7 @@ export default function SetupPage() {
     <div className="max-w-6xl mx-auto p-6">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Business Administration</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Admin</h1>
         <button
           onClick={() => {
             resetForm();
@@ -223,6 +270,12 @@ export default function SetupPage() {
                       Edit
                     </button>
                     <button
+                      onClick={() => openOwnerModal(business)}
+                      className="text-indigo-600 hover:text-indigo-900"
+                    >
+                      Reassign Owner
+                    </button>
+                    <button
                       onClick={() => handleDeleteBusiness(business)}
                       className="text-red-600 hover:text-red-900"
                     >
@@ -267,7 +320,7 @@ export default function SetupPage() {
                     placeholder="US"
                   />
                 </div>
-                <div className="flex items-end">
+                <div className="flex items/end">
                   <label className="flex items-center space-x-2">
                     <input
                       type="checkbox"
@@ -368,7 +421,7 @@ export default function SetupPage() {
       {/* Edit Business Modal */}
       {showEditModal && selectedBusiness && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl p-6 w/full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Business</h2>
             <form onSubmit={handleUpdateBusiness} className="space-y-4">
               <div>
@@ -408,7 +461,7 @@ export default function SetupPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                <label className="block text/sm font-medium text-gray-700 mb-1">Address</label>
                 <input
                   type="text"
                   value={formData.address}
@@ -457,6 +510,62 @@ export default function SetupPage() {
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
                 >
                   {submitting ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reassign Owner Modal */}
+      {showOwnerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-xl max-h-[80vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Reassign Business Owner</h2>
+            <form onSubmit={handleReassignOwner} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select New Owner *</label>
+                {loadingOwnerCandidates ? (
+                  <div className="text-sm text-gray-500">Loading employees...</div>
+                ) : ownerCandidates.length === 0 ? (
+                  <div className="text-sm text-gray-500">No active employees found.</div>
+                ) : (
+                  <select
+                    value={selectedOwnerId ?? ''}
+                    onChange={(e) => setSelectedOwnerId(Number(e.target.value) || null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="" disabled>Select an employee</option>
+                    {ownerCandidates.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.name} ({emp.email}) {emp.role === 'Owner' ? '- current owner' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-xs text-gray-500 mt-1">Current owners will be set to Manager.</p>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowOwnerModal(false);
+                    setOwnerModalBusinessId(null);
+                    setOwnerCandidates([]);
+                    setSelectedOwnerId(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || loadingOwnerCandidates || !selectedOwnerId}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50"
+                >
+                  {submitting ? 'Reassigning...' : 'Reassign Owner'}
                 </button>
               </div>
             </form>

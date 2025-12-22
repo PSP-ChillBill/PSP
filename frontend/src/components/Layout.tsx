@@ -27,16 +27,16 @@ export default function Layout() {
 
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Employees', href: '/employees', icon: Users, roles: ['SuperAdmin', 'Owner', 'Manager'] },
+    { name: 'Employees', href: '/employees', icon: Users, roles: ['SuperAdmin', 'Owner', 'Manager', 'Staff'] },
     { name: 'Catalog', href: '/catalog', icon: Package },
     { name: 'Orders', href: '/orders', icon: ShoppingCart },
-    { name: 'Payments', href: '/payments', icon: CreditCard },
+    { name: 'Payments', href: '/payments', icon: CreditCard, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Reservations', href: '/reservations', icon: Calendar },
-    { name: 'Tables', href: '/tables', icon: LayoutGrid, roles: ['SuperAdmin', 'Owner', 'Manager'] },
-    { name: 'Discounts', href: '/discounts', icon: Tag, roles: ['SuperAdmin', 'Owner', 'Manager'] },
+    { name: 'Tables', href: '/tables', icon: LayoutGrid, roles: ['SuperAdmin', 'Owner', 'Manager', 'Staff'] },
+    { name: 'Discounts', href: '/discounts', icon: Tag, roles: ['SuperAdmin', 'Owner', 'Manager', 'Staff'] },
     { name: 'Gift Cards', href: '/gift-cards', icon: Gift, roles: ['SuperAdmin', 'Owner', 'Manager'] },
     { name: 'Taxes', href: '/taxes', icon: Percent, roles: ['SuperAdmin', 'Owner'] },
-    { name: 'Inventory', href: '/inventory', icon: Archive, roles: ['SuperAdmin', 'Owner', 'Manager'] },
+    { name: 'Inventory', href: '/inventory', icon: Archive, roles: ['SuperAdmin', 'Owner', 'Manager', 'Staff'] },
     { name: 'Activity Log', href: '/activity', icon: Clock3, roles: ['Owner'] },
   ];
 
