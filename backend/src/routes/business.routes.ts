@@ -1,17 +1,17 @@
-import { Router } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { body, param } from 'express-validator';
 import prisma from '../lib/prisma';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { ApiError, ConflictError, NotFoundError, ValidationError } from '../middleware/errorHandler';
 import { validationResult } from 'express-validator';
 
-const router = Router();
+const router: Router = Router();
 
 // Validation middleware
-const validateRequest = (req: AuthRequest, res: any, next: any) => {
+const validateRequest = (req: AuthRequest, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    throw ValidationError(errors.array().map(e => `${e.param}: ${e.msg}`));
+    throw ValidationError(errors.array().map((e: any) => `${e.param}: ${e.msg}`));
   }
   next();
 };
@@ -29,7 +29,7 @@ router.post(
     body('ownerName').notEmpty().withMessage('Owner name required'),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { name, address, phone, email, countryCode, priceIncludesTax, ownerEmail, ownerName } = req.body;
 
@@ -69,8 +69,13 @@ router.post(
       });
 
       res.status(201).json(result);
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      // Handle Prisma unique constraint errors
+      if (error.code === 'P2002') {
+        next(ConflictError('UNIQUE_CONSTRAINT', `A record with this ${error.meta?.target?.[0] || 'field'} already exists`));
+      } else {
+        next(error);
+      }
     }
   }
 );
@@ -155,7 +160,7 @@ router.put(
     body('priceIncludesTax').optional().isBoolean(),
   ],
   validateRequest,
-  async (req: AuthRequest, res, next) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const businessId = parseInt(req.params.id);
 
@@ -170,6 +175,38 @@ router.put(
       });
 
       res.json(business);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Deactivate/Delete business (Super Admin only)
+router.delete(
+  '/:id',
+  authenticate,
+  authorize('SuperAdmin'),
+  param('id').isInt(),
+  validateRequest,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const businessId = parseInt(req.params.id);
+
+      // Check if business exists
+      const business = await prisma.business.findUnique({
+        where: { id: businessId },
+      });
+
+      if (!business) {
+        throw NotFoundError('Business', businessId);
+      }
+
+      // Delete business (cascade will handle related records)
+      await prisma.business.delete({
+        where: { id: businessId },
+      });
+
+      res.json({ message: 'Business deleted successfully', id: businessId });
     } catch (error) {
       next(error);
     }
