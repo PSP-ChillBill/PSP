@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
+import { Pencil, UserCog, Trash2 } from 'lucide-react';
 
 interface Business {
   id: number;
@@ -21,7 +22,7 @@ interface Business {
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -46,6 +47,11 @@ export default function AdminPage() {
   });
 
   const [submitting, setSubmitting] = useState(false);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   useEffect(() => {
     // Redirect non-SuperAdmin users
@@ -218,16 +224,24 @@ export default function AdminPage() {
     <div className="max-w-6xl mx-auto p-6">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Admin</h1>
-        <button
-          onClick={() => {
-            resetForm();
-            setShowCreateModal(true);
-          }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          + Create Business
-        </button>
+        <h1 className="text-3xl font-bold text-gray-900">Administrator Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+          >
+            Logout
+          </button>
+          <button
+            onClick={() => {
+              resetForm();
+              setShowCreateModal(true);
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            + Create Business
+          </button>
+        </div>
       </div>
 
       {/* Businesses Table */}
@@ -262,25 +276,33 @@ export default function AdminPage() {
                     <div className="text-sm text-gray-900">{business.email}</div>
                     <div className="text-xs text-gray-500">{business.phone}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <button
-                      onClick={() => openEditModal(business)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => openOwnerModal(business)}
-                      className="text-indigo-600 hover:text-indigo-900"
-                    >
-                      Reassign Owner
-                    </button>
-                    <button
-                      onClick={() => handleDeleteBusiness(business)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => openEditModal(business)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition"
+                        title="Edit business"
+                      >
+                        <Pencil className="w-4 h-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => openOwnerModal(business)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-indigo-300 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition"
+                        title="Reassign owner"
+                      >
+                        <UserCog className="w-4 h-4" />
+                        Reassign Owner
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBusiness(business)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-red-300 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition"
+                        title="Delete business"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
