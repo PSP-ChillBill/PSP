@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, ShoppingCart, CreditCard, RotateCcw, Printer, X } from 'lucide-react';
+import { Plus, ShoppingCart, CreditCard, RotateCcw, Printer, X, Edit } from 'lucide-react';
 import PaymentModal from '../components/orders/PaymentModal';
 import RefundModal from '../components/orders/RefundModal';
 import NewOrderModal from '../components/orders/NewOrderModal';
+import EditOrderModal from '../components/orders/EditOrderModal';
 import { calculateOrderTotal } from '../lib/order';
 
 export default function OrdersPage() {
@@ -15,6 +16,7 @@ export default function OrdersPage() {
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showEditOrderModal, setShowEditOrderModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [filterStatus, setFilterStatus] = useState<string>('Open');
 
@@ -51,6 +53,11 @@ export default function OrdersPage() {
   const handleOpenRefund = (order: any) => {
     setSelectedOrder(order);
     setShowRefundModal(true);
+  };
+
+  const handleOpenEditOrder = (order: any) => {
+    setSelectedOrder(order);
+    setShowEditOrderModal(true);
   };
 
   const handleCancelOrder = async (orderId: number) => {
@@ -203,6 +210,13 @@ export default function OrdersPage() {
                         <span>Process Payment</span>
                       </button>
                       <button
+                        onClick={() => handleOpenEditOrder(order)}
+                        className="px-4 py-2 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition flex items-center justify-center space-x-2"
+                      >
+                        <Edit className="w-4 h-4" />
+                        <span>Edit</span>
+                      </button>
+                      <button
                         onClick={() => handleCancelOrder(order.id)}
                         className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition flex items-center justify-center space-x-2"
                       >
@@ -253,6 +267,17 @@ export default function OrdersPage() {
           order={selectedOrder}
           onClose={() => {
             setShowRefundModal(false);
+            setSelectedOrder(null);
+          }}
+          onSuccess={loadOrders}
+        />
+      )}
+
+      {showEditOrderModal && selectedOrder && (
+        <EditOrderModal
+          order={selectedOrder}
+          onClose={() => {
+            setShowEditOrderModal(false);
             setSelectedOrder(null);
           }}
           onSuccess={loadOrders}

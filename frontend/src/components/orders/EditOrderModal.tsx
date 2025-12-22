@@ -4,12 +4,12 @@ import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { X, Plus, Minus, Trash2 } from 'lucide-react';
 
-export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+export default function EditOrderModal({ order, onClose, onSuccess }: { order: any; onClose: () => void; onSuccess: () => void }) {
   const { user } = useAuthStore();
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cart, setCart] = useState<{ itemId: number; name: string; price: number; qty: number }[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [orderLines, setOrderLines] = useState(order.orderLines || []);
+  const [saving, setSaving] = useState(false);
   const [taxRates, setTaxRates] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
@@ -58,78 +58,108 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
     return basePrice * (1 + taxRate / 100);
   };
 
-  const addToCart = (item: any) => {
-    const existing = cart.find(c => c.itemId === item.id);
+  const addItem = async (item: any) => {
+    const existing = orderLines.find((line: any) => line.option?.catalogItem?.id === item.id);
     if (existing) {
-      setCart(cart.map(c => c.itemId === item.id ? { ...c, qty: c.qty + 1 } : c));
+      updateLineQty(existing.id, parseFloat(existing.qty) + 1);
     } else {
-      setCart([...cart, {
-        itemId: item.id,
-        name: item.name,
-        price: getPriceWithTax(item),
-        qty: 1,
-      }]);
-    }
-  };
+      let optionId = item.options?.[0]?.id;
 
-  const updateQty = (itemId: number, delta: number) => {
-    setCart(cart.map(c => {
-      if (c.itemId === itemId) {
-        const newQty = Math.max(1, c.qty + delta);
-        return { ...c, qty: newQty };
-      }
-      return c;
-    }));
-  };
-
-  const removeFromCart = (itemId: number) => {
-    setCart(cart.filter(c => c.itemId !== itemId));
-  };
-
-  const getCartTotal = () => {
-    return cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-  };
-
-  const handleCreate = async () => {
-    if (cart.length === 0) {
-      toast.error('Add items to the order');
-      return;
-    }
-
-    try {
-      setCreating(true);
-      const orderRes = await api.post('/orders', {
-        businessId: user?.businessId,
-      });
-      const orderId = orderRes.data.id;
-
-      // Add lines (need to get options first)
-      for (const item of cart) {
-        const catalogItem = catalogItems.find(c => c.id === item.itemId);
-        let optionId = catalogItem?.options?.[0]?.id;
-
-        if (!optionId) {
+      if (!optionId) {
+        try {
           const optRes = await api.post('/catalog/options', {
-            catalogItemId: item.itemId,
+            catalogItemId: item.id,
             name: 'Standard',
             priceModifier: 0,
           });
           optionId = optRes.data.id;
+          
+          setCatalogItems(prev => prev.map(i => 
+            i.id === item.id 
+              ? { ...i, options: [optRes.data] } 
+              : i
+          ));
+        } catch (error) {
+          toast.error('Failed to initialize item options');
+          return;
         }
-
-        await api.post(`/orders/${orderId}/lines`, {
-          optionId,
-          qty: item.qty,
-        });
       }
 
-      toast.success('Order created');
+      if (optionId) {
+        addLineToOrder(optionId, 1, item);
+      }
+    }
+  };
+
+  const addLineToOrder = async (optionId: number, qty: number, item?: any) => {
+    try {
+      const response = await api.post(`/orders/${order.id}/lines`, {
+        optionId,
+        qty,
+      });
+      
+      let catalogItem = item;
+      if (!catalogItem) {
+        catalogItem = catalogItems.find(c => c.options?.some((o: any) => o.id === optionId));
+      }
+
+      setOrderLines([...orderLines, { 
+        ...response.data, 
+        option: { 
+          id: optionId,
+          catalogItem: catalogItem 
+        } 
+      }]);
+      toast.success('Item added');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to add item');
+    }
+  };
+
+  const updateLineQty = async (lineId: number, newQty: number) => {
+    if (newQty <= 0) {
+      removeLineFromOrder(lineId);
+      return;
+    }
+
+    try {
+      await api.put(`/orders/${order.id}/lines/${lineId}`, {
+        qty: newQty,
+      });
+      setOrderLines(orderLines.map(line => 
+        line.id === lineId ? { ...line, qty: newQty } : line
+      ));
+      toast.success('Item quantity updated');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to update item');
+    }
+  };
+
+  const removeLineFromOrder = async (lineId: number) => {
+    try {
+      await api.delete(`/orders/${order.id}/lines/${lineId}`);
+      setOrderLines(orderLines.filter(line => line.id !== lineId));
+      toast.success('Item removed');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Failed to remove item');
+    }
+  };
+
+  const getCartTotal = () => {
+    return orderLines.reduce((sum, line) => {
+      const lineTotal = parseFloat(line.unitPriceSnapshot) * parseFloat(line.qty);
+      const tax = lineTotal * (parseFloat(line.taxRateSnapshotPct) / 100);
+      return sum + lineTotal + tax;
+    }, 0);
+  };
+
+  const handleClose = async () => {
+    setSaving(true);
+    try {
       onSuccess();
       onClose();
-    } catch (error: any) {
-      toast.error(error?.response?.data?.message || 'Failed to create order');
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
@@ -137,7 +167,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-lg shadow-lg flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">New Order</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Edit Order #{order.id}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X className="w-5 h-5" />
           </button>
@@ -146,7 +176,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
         <div className="flex-1 overflow-y-auto p-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
-              <h3 className="font-medium text-gray-900 mb-3">Catalog Items</h3>
+              <h3 className="font-medium text-gray-900 mb-3">Available Items</h3>
               {loading ? (
                 <div className="flex justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
@@ -156,7 +186,7 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
                   {catalogItems.map((item) => (
                     <button
                       key={item.id}
-                      onClick={() => addToCart(item)}
+                      onClick={() => addItem(item)}
                       className="text-left p-4 border border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition"
                     >
                       <div className="font-medium text-gray-900">{item.name}</div>
@@ -178,32 +208,33 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
             <div className="lg:col-span-1">
               <h3 className="font-medium text-gray-900 mb-3">Order Items</h3>
               <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                {cart.length === 0 ? (
-                  <p className="text-gray-500 text-sm text-center py-4">No items added</p>
+                {orderLines.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-4">No items in order</p>
                 ) : (
                   <>
-                    {cart.map((item) => (
-                      <div key={item.itemId} className="flex items-center justify-between bg-white p-3 rounded">
+                    {orderLines.map((line) => (
+                      <div key={line.id} className="flex items-center justify-between bg-white p-3 rounded">
                         <div className="flex-1">
-                          <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                          <div className="text-xs text-gray-500">€{item.price.toFixed(2)} each</div>
+                          <div className="text-sm font-medium text-gray-900">{line.itemNameSnapshot}</div>
+                          {line.optionNameSnapshot && <div className="text-xs text-gray-500">{line.optionNameSnapshot}</div>}
+                          <div className="text-xs text-gray-500">€{parseFloat(line.unitPriceSnapshot).toFixed(2)} each</div>
                         </div>
                         <div className="flex items-center space-x-2">
                           <button
-                            onClick={() => updateQty(item.itemId, -1)}
+                            onClick={() => updateLineQty(line.id, parseFloat(line.qty) - 1)}
                             className="p-1 hover:bg-gray-100 rounded"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
-                          <span className="w-8 text-center font-medium">{item.qty}</span>
+                          <span className="w-8 text-center font-medium">{parseFloat(line.qty).toFixed(0)}</span>
                           <button
-                            onClick={() => updateQty(item.itemId, 1)}
+                            onClick={() => updateLineQty(line.id, parseFloat(line.qty) + 1)}
                             className="p-1 hover:bg-gray-100 rounded"
                           >
                             <Plus className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => removeFromCart(item.itemId)}
+                            onClick={() => removeLineFromOrder(line.id)}
                             className="p-1 hover:bg-red-100 text-red-600 rounded"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -232,11 +263,11 @@ export default function NewOrderModal({ onClose, onSuccess }: { onClose: () => v
             Cancel
           </button>
           <button
-            onClick={handleCreate}
-            disabled={creating || cart.length === 0}
+            onClick={handleClose}
+            disabled={saving}
             className="px-4 py-2 rounded-md bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
           >
-            {creating ? 'Creating...' : 'Create Order'}
+            {saving ? 'Saving...' : 'Done'}
           </button>
         </div>
       </div>
